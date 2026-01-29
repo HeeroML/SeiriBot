@@ -1,102 +1,79 @@
-import { randomId, randomInt } from "../util/random.ts";
+import { randomBytes } from "node:crypto";
 
 const EMOJI_POOL = [
-  "🍎", "🍌", "🍇", "🍓", "🍒", "🍍", "🥝", "🍋", "🍉", "🍑", "🍐",
-  "🥕", "🌽", "🥔", "🍄", "🌶️", "🧄", "🧅", "🥑",
-  "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯",
-  "⭐", "🌙", "⚡", "🔥", "💧", "❄️", "🌈", "☘️", "🍀",
-  "🔺", "🔷", "⬛", "⬜", "🟩", "🟦", "🟨", "🟪",
+  "🍎",
+  "🍌",
+  "🍇",
+  "🍒",
+  "🍉",
+  "🍋",
+  "🥝",
+  "🍑",
+  "🍍",
+  "🥥",
+  "🥕",
+  "🌽",
+  "🧀",
+  "🍪",
+  "🍩",
+  "🍫",
+  "⭐️",
+  "⚡️",
+  "🔥",
+  "🌊"
 ];
 
-export type PatternChallenge = {
-  id: string;
-  message: string;
-  correctRow: number; // 1..4
-};
+export const ROW_COUNT = 4;
+export const ROW_LENGTH = 8;
 
-/**
- * Create a "repeating pattern" captcha:
- * - 4 lines of emoji sequences
- * - Exactly one line has a single mistake (one element replaced)
- */
-export function createPatternChallenge(params?: {
-  rows?: number;
-  length?: number;
-  minPatternSize?: number;
-  maxPatternSize?: number;
-}): PatternChallenge {
-  const rows = params?.rows ?? 4;
-  const length = params?.length ?? 12;
-  const minPatternSize = params?.minPatternSize ?? 2;
-  const maxPatternSize = params?.maxPatternSize ?? 4;
-
-  if (rows < 2) throw new Error("rows must be >= 2");
-  if (length < 6) throw new Error("length must be >= 6");
-
-  const rowData: string[] = [];
-  const rowPatterns: string[][] = [];
-
-  // Build each row as a clean repeating pattern.
-  for (let r = 0; r < rows; r++) {
-    const patternSize = randomInt(minPatternSize, maxPatternSize + 1);
-    const symbols = sampleUnique(EMOJI_POOL, patternSize);
-    rowPatterns.push(symbols);
-
-    const seq: string[] = [];
-    for (let i = 0; i < length; i++) {
-      seq.push(symbols[i % patternSize]);
-    }
-    rowData.push(seq.join(""));
-  }
-
-  // Choose which row to corrupt.
-  const brokenIndex = randomInt(0, rows);
-  const brokenPattern = rowPatterns[brokenIndex];
-
-  // NOTE: Array.from(string) splits by code points; emoji can be multiple code points.
-  // To keep it robust, we instead regenerate sequence tokens explicitly.
-  const patternSize = brokenPattern.length;
-  const tokens: string[] = [];
-  for (let i = 0; i < length; i++) tokens.push(brokenPattern[i % patternSize]);
-
-  // Replace a random position with an emoji NOT in the pattern.
-  const pos = randomInt(0, length);
-  let replacement = sampleUnique(EMOJI_POOL, 1)[0];
-  let guard = 0;
-  while (brokenPattern.includes(replacement) && guard++ < 50) {
-    replacement = sampleUnique(EMOJI_POOL, 1)[0];
-  }
-  tokens[pos] = replacement;
-  rowData[brokenIndex] = tokens.join("");
-
-  const id = randomId(16);
-
-  const lines: string[] = [];
-  lines.push("🧩 **Human check required**");
-  lines.push("Exactly **one** line has a mistake in its repeating pattern.");
-  lines.push("Tap the number (1–4).\n");
-
-  // Put sequences in a code block to keep monospace spacing.
-  lines.push("```");
-  for (let i = 0; i < rowData.length; i++) {
-    lines.push(`${i + 1}) ${rowData[i]}`);
-  }
-  lines.push("```");
-
-  return {
-    id,
-    message: lines.join("\n"),
-    correctRow: brokenIndex + 1,
-  };
+function randomInt(min: number, max: number): number {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-function sampleUnique<T>(arr: T[], n: number): T[] {
-  if (n > arr.length) throw new Error("sampleUnique: n > arr.length");
-  const copy = arr.slice();
-  // Fisher-Yates partial shuffle
-  for (let i = 0; i < n; i++) {
-    const j = i + randomInt(0, copy.length - i);
-    [copy[i], copy[j]] = [copy[j], copy[i]];
+function pickDistinctEmojis(count: number, exclude: Set<string> = new Set()): string[] {
+  const available = EMOJI_POOL.filter((emoji) => !exclude.has(emoji));
+  if (count > available.length) {
+    throw new Error("Not enough emojis to build a captcha pattern.");
   }
-  return copy.slice(0, n);
+  for (let i = available.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [available[i], available[j]] = [available[j], available[i]];
+  }
+  return available.slice(0, count);
+}
+
+export function generateNonce(bytes = 4): string {
+  return randomBytes(bytes).toString("hex");
+}
+
+export type PatternCaptcha = {
+  rows: string[][];
+  brokenRow: number;
+  text: string;
+};
+
+export function generatePatternCaptcha(): PatternCaptcha {
+  const rows: string[][] = [];
+  const patterns: string[][] = [];
+
+  for (let i = 0; i < ROW_COUNT; i += 1) {
+    const patternLength = randomInt(2, 4);
+    const pattern = pickDistinctEmojis(patternLength);
+    const row = Array.from({ length: ROW_LENGTH }, (_, index) => pattern[index % patternLength]);
+    rows.push(row);
+    patterns.push(pattern);
+  }
+
+  const brokenRowIndex = randomInt(0, ROW_COUNT - 1);
+  const brokenElementIndex = randomInt(0, ROW_LENGTH - 1);
+  const replacement = pickDistinctEmojis(1, new Set(patterns[brokenRowIndex]))[0];
+  rows[brokenRowIndex][brokenElementIndex] = replacement;
+
+  const text = rows.map((row, index) => `${index + 1}) ${row.join(" ")}`).join("\n");
+
+  return {
+    rows,
+    brokenRow: brokenRowIndex + 1,
+    text
+  };
 }
