@@ -29,7 +29,7 @@ bot.use(chatMembers(chatMemberStorage));
 const pendingIndex = new Map<string, PendingIndexEntry>();
 const configStorage = freeStorage<GroupConfig>(env.BOT_TOKEN);
 
-registerJoinRequestHandler(bot, { env, pendingIndex });
+registerJoinRequestHandler(bot, { env, pendingIndex, configStorage });
 registerCallbackHandlers(bot, { pendingIndex, configStorage });
 registerChatMemberHandler(bot, sessionStorage);
 registerConfigHandlers(bot, configStorage);

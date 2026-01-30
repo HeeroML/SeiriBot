@@ -3,7 +3,7 @@ import type { MyContext, PendingCaptcha, PendingIndexEntry } from "../types";
 import { makePendingKey } from "../types";
 import { buildNumericKeyboard, formatOptionsText } from "../captcha/render";
 import type { ConfigStorage } from "../config/store";
-import { getGroupConfig, renderTemplate } from "../config/store";
+import { getGroupConfig, recordVerifiedUser, renderTemplate } from "../config/store";
 
 const CALLBACK_PREFIX = "captcha";
 const CALLBACK_RE = /^captcha\|(-?\d+)\|(\d+)\|([1-4])\|([a-f0-9]+)$/i;
@@ -148,10 +148,6 @@ export function registerCallbackHandlers(
       return;
     }
 
-    testCaptcha.textMode = true;
-    ctx.session.testCaptcha = testCaptcha;
-    await ctx.answerCallbackQuery({ text: "Textmodus aktiviert." });
-
     const messageText = [
       "Textmodus aktiviert. Antworte mit 1-4.",
       testCaptcha.question,
@@ -170,7 +166,16 @@ export function registerCallbackHandlers(
       }
     );
 
-    await ctx.reply(messageText, { reply_markup: keyboard });
+    try {
+      await ctx.editMessageText(messageText, { reply_markup: keyboard });
+    } catch (error) {
+      await ctx.answerCallbackQuery({ text: "Textmodus konnte nicht angezeigt werden." });
+      return;
+    }
+
+    testCaptcha.textMode = true;
+    ctx.session.testCaptcha = testCaptcha;
+    await ctx.answerCallbackQuery({ text: "Textmodus aktiviert." });
   });
 
   bot.callbackQuery(TEST_BAN_RE, async (ctx) => {
@@ -245,14 +250,20 @@ export function registerCallbackHandlers(
       pending.status = "processing";
       ctx.session.pendingCaptchas[key] = pending;
       await ctx.answerCallbackQuery({ text: "✅ Richtig! Wird freigegeben..." });
+      let approved = false;
       try {
         await ctx.api.approveChatJoinRequest(chatId, userId);
+        approved = true;
       } catch (error) {
         console.error("Failed to approve join request", error);
       }
+      if (approved) {
+        await recordVerifiedUser(deps.configStorage, chatId, userId, Date.now());
+      }
       deps.pendingIndex.delete(key);
       delete ctx.session.pendingCaptchas[key];
-      await showWelcomeMessage(ctx, chatId, userId, deps.configStorage, "welcome", true);
+      await deleteCaptchaMessage(ctx, pending);
+      await showWelcomeMessage(ctx, chatId, userId, deps.configStorage, "welcome", false);
       return;
     }
 
@@ -319,10 +330,6 @@ export function registerCallbackHandlers(
       return;
     }
 
-    pending.textMode = true;
-    ctx.session.pendingCaptchas[key] = pending;
-    await ctx.answerCallbackQuery({ text: "Textmodus aktiviert." });
-
     const remaining = pending.maxAttempts - pending.attempts;
     const messageText = [
       "Textmodus aktiviert. Antworte mit 1-4.",
@@ -344,9 +351,19 @@ export function registerCallbackHandlers(
       }
     );
 
-    const message = await ctx.reply(messageText, { reply_markup: keyboard });
-    pending.lastCaptchaMessageId = message.message_id;
+    try {
+      await ctx.editMessageText(messageText, { reply_markup: keyboard });
+    } catch (error) {
+      await ctx.answerCallbackQuery({ text: "Textmodus konnte nicht angezeigt werden." });
+      return;
+    }
+
+    pending.textMode = true;
+    if (ctx.callbackQuery.message?.message_id) {
+      pending.lastCaptchaMessageId = ctx.callbackQuery.message.message_id;
+    }
     ctx.session.pendingCaptchas[key] = pending;
+    await ctx.answerCallbackQuery({ text: "Textmodus aktiviert." });
   });
 
   bot.callbackQuery(BAN_RE, async (ctx) => {
@@ -446,13 +463,19 @@ export function registerCallbackHandlers(
         pending.status = "processing";
         ctx.session.pendingCaptchas[key] = pending;
         await ctx.reply("✅ Richtig! Wird freigegeben...");
+        let approved = false;
         try {
           await ctx.api.approveChatJoinRequest(pending.chatId, pending.userId);
+          approved = true;
         } catch (error) {
           console.error("Failed to approve join request", error);
         }
+        if (approved) {
+          await recordVerifiedUser(deps.configStorage, pending.chatId, pending.userId, Date.now());
+        }
         deps.pendingIndex.delete(key);
         delete ctx.session.pendingCaptchas[key];
+        await deleteCaptchaMessage(ctx, pending);
         await showWelcomeMessage(ctx, pending.chatId, pending.userId, deps.configStorage, "welcome", false);
         return;
       }
@@ -527,13 +550,23 @@ async function tryEditCaptchaMessage(ctx: MyContext, text: string): Promise<void
   }
 }
 
+async function deleteCaptchaMessage(ctx: MyContext, pending: PendingCaptcha): Promise<void> {
+  const messageId = pending.lastCaptchaMessageId ?? ctx.callbackQuery?.message?.message_id;
+  if (!messageId) return;
+  try {
+    await ctx.api.deleteMessage(pending.userChatId, messageId);
+  } catch (error) {
+    // Ignore delete failures (message might be gone or cannot be deleted)
+  }
+}
+
 type WelcomeView = "welcome" | "rules";
 
 function buildWelcomeCallbackData(chatId: number, userId: number, view: WelcomeView): string {
   return `welcome|${chatId}|${userId}|${view}`;
 }
 
-async function showWelcomeMessage(
+export async function showWelcomeMessage(
   ctx: MyContext,
   chatId: number,
   userId: number,

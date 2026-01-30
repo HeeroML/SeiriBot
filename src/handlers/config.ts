@@ -1,7 +1,15 @@
 import type { Bot, Context } from "grammy";
 import type { MyContext } from "../types";
 import type { ConfigStorage } from "../config/store";
-import { getGroupConfig, renderTemplate, setGroupConfig } from "../config/store";
+import {
+  addAllowlistUser,
+  addDenylistUser,
+  getGroupConfig,
+  removeAllowlistUser,
+  removeDenylistUser,
+  renderTemplate,
+  setGroupConfig
+} from "../config/store";
 
 const ADMIN_STATUSES = new Set(["administrator", "creator"]);
 const CONFIG_CHAT_TYPES = new Set(["group", "supergroup", "channel"]);
@@ -101,6 +109,78 @@ export function registerConfigHandlers(
     const config = await getGroupConfig(configStorage, target.chatId);
     await ctx.reply(renderTemplate(config.rulesMessage, target.chatTitle));
   });
+
+  bot.command("allow", async (ctx) => {
+    const target = await resolveConfigTarget(ctx);
+    if (!target) return;
+    const userId = await resolveTargetUserId(ctx);
+    if (!userId) {
+      await ctx.reply("Nutzung: /allow <user-id oder @username> oder antworte auf eine Nachricht.");
+      return;
+    }
+    const updated = await addAllowlistUser(configStorage, target.chatId, userId);
+    await ctx.reply(`✅ Allowlist aktualisiert (${updated.allowlist.length}).`);
+  });
+
+  bot.command("deny", async (ctx) => {
+    const target = await resolveConfigTarget(ctx);
+    if (!target) return;
+    const userId = await resolveTargetUserId(ctx);
+    if (!userId) {
+      await ctx.reply("Nutzung: /deny <user-id oder @username> oder antworte auf eine Nachricht.");
+      return;
+    }
+    const updated = await addDenylistUser(configStorage, target.chatId, userId);
+    await ctx.reply(`✅ Denylist aktualisiert (${updated.denylist.length}).`);
+  });
+
+  bot.command("unallow", async (ctx) => {
+    const target = await resolveConfigTarget(ctx);
+    if (!target) return;
+    const userId = await resolveTargetUserId(ctx);
+    if (!userId) {
+      await ctx.reply("Nutzung: /unallow <user-id oder @username> oder antworte auf eine Nachricht.");
+      return;
+    }
+    const updated = await removeAllowlistUser(configStorage, target.chatId, userId);
+    await ctx.reply(`✅ Allowlist aktualisiert (${updated.allowlist.length}).`);
+  });
+
+  bot.command("undeny", async (ctx) => {
+    const target = await resolveConfigTarget(ctx);
+    if (!target) return;
+    const userId = await resolveTargetUserId(ctx);
+    if (!userId) {
+      await ctx.reply("Nutzung: /undeny <user-id oder @username> oder antworte auf eine Nachricht.");
+      return;
+    }
+    const updated = await removeDenylistUser(configStorage, target.chatId, userId);
+    await ctx.reply(`✅ Denylist aktualisiert (${updated.denylist.length}).`);
+  });
+
+  bot.command("listallow", async (ctx) => {
+    const target = await resolveConfigTarget(ctx);
+    if (!target) return;
+    const config = await getGroupConfig(configStorage, target.chatId);
+    const ids = config.allowlist.map((id) => id.toString()).join(", ");
+    await ctx.reply(
+      config.allowlist.length
+        ? `Allowlist (${config.allowlist.length}): ${ids}`
+        : "Allowlist ist leer."
+    );
+  });
+
+  bot.command("listdeny", async (ctx) => {
+    const target = await resolveConfigTarget(ctx);
+    if (!target) return;
+    const config = await getGroupConfig(configStorage, target.chatId);
+    const ids = config.denylist.map((id) => id.toString()).join(", ");
+    await ctx.reply(
+      config.denylist.length
+        ? `Denylist (${config.denylist.length}): ${ids}`
+        : "Denylist ist leer."
+    );
+  });
 }
 
 function extractCommandPayload(ctx: Context): string {
@@ -150,6 +230,29 @@ async function resolveChatIdFromInput(ctx: Context, input: string): Promise<numb
       return chat.id;
     } catch (error) {
       console.error("Failed to resolve chat username", error);
+      return undefined;
+    }
+  }
+  const parsed = Number(token);
+  if (!Number.isFinite(parsed)) return undefined;
+  return parsed;
+}
+
+async function resolveTargetUserId(ctx: Context): Promise<number | undefined> {
+  const payload = extractCommandPayload(ctx);
+  if (!payload) {
+    const replyUser = ctx.message?.reply_to_message?.from?.id;
+    return replyUser ?? undefined;
+  }
+
+  const token = payload.trim().split(/\s+/)[0];
+  if (!token) return undefined;
+  if (token.startsWith("@")) {
+    try {
+      const chat = await ctx.api.getChat(token);
+      return chat.id;
+    } catch (error) {
+      console.error("Failed to resolve user", error);
       return undefined;
     }
   }
@@ -208,7 +311,10 @@ function formatConfigMessage(
     "Regeln:",
     renderTemplate(config.rulesMessage, chatTitle),
     "",
-    "Befehle: /setwelcome <text> | /setrules <text>"
+    `Allowlist: ${config.allowlist.length} | Denylist: ${config.denylist.length} | Cache: ${
+      Object.keys(config.verifiedUsers).length
+    }`,
+    "Befehle: /setwelcome <text> | /setrules <text> | /allow | /deny"
   ];
   if (isPrivate) {
     lines.push(`Aktive Gruppe: ${chatId}`);

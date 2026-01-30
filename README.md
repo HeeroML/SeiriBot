@@ -5,6 +5,7 @@ Seiri Bot is a Telegram bot that handles **chat join requests** by DMing users a
 ## Features
 - Handles `chat_join_request` updates.
 - DMs a 4-option multiple-choice captcha (A-D) with a text-mode fallback and a decoy "Nicht hier drücken" button.
+- Auto-approves allowlisted users and recent verifications.
 - Approves or declines join requests via the Telegram Bot API.
 - Session-based state using grammY's session plugin.
 - Configurable welcome + rules messages with a toggle button.
@@ -37,6 +38,7 @@ Optional environment variables:
 - `CAPTCHA_TTL_MS` (default 600000)
 - `MAX_ATTEMPTS` (default 3)
 - `SWEEP_INTERVAL_MS` (default 60000)
+- `VERIFIED_TTL_MS` (default 604800000)
 
 ## Configure welcome & rules (per group)
 Run these commands **in the group** as an admin:
@@ -49,6 +51,14 @@ You can also configure from private chat:
 - Run `/config` in the group (as admin) to set the active group for your DM session.
 - Or use `/config <chat-id or @username>` in private chat.
 - Then run `/setwelcome`, `/setrules`, `/showwelcome`, `/showrules` in private chat.
+
+Allow/deny list commands (admin only):
+- `/allow <user-id or @username>` add user to allowlist (auto-approve).
+- `/deny <user-id or @username>` add user to denylist (auto-decline + ban).
+- `/unallow <user-id or @username>` remove from allowlist.
+- `/undeny <user-id or @username>` remove from denylist.
+- `/listallow` show allowlist.
+- `/listdeny` show denylist.
 
 You can use `{chat}` or `{chatTitle}` placeholders in messages.
 
@@ -71,6 +81,7 @@ npm start
 - The captcha is a 4-option multiple-choice question with **exactly one correct answer**.
 - The user taps the correct answer (A-D) or uses text mode (reply with 1-4). Wrong answers are limited by `MAX_ATTEMPTS`.
 - The decoy “Nicht hier drücken” button closes the request and bans the user (if the bot has restrict permission).
+- Allowlisted users or recently verified users (within `VERIFIED_TTL_MS`) are auto-approved.
 - Sessions are keyed by `ctx.from.id` via `getSessionKey` so join requests and private chat callbacks share state.
 - A periodic sweep auto-declines expired requests.
 

@@ -2,13 +2,25 @@ import type { Bot } from "grammy";
 import type { Env } from "../env";
 import { generateNonce, generatePatternCaptcha } from "../captcha/pattern";
 import { buildChoiceKeyboard } from "../captcha/render";
+import type { ConfigStorage } from "../config/store";
+import {
+  getGroupConfig,
+  pruneVerifiedUsers,
+  recordVerifiedUser,
+  setGroupConfig
+} from "../config/store";
 import type { MyContext, PendingCaptcha, PendingIndexEntry } from "../types";
 import { makePendingKey } from "../types";
-import { buildBanCallbackData, buildCaptchaCallbackData, buildTextModeCallbackData } from "./callbacks";
+import {
+  buildBanCallbackData,
+  buildCaptchaCallbackData,
+  buildTextModeCallbackData,
+  showWelcomeMessage
+} from "./callbacks";
 
 export function registerJoinRequestHandler(
   bot: Bot<MyContext>,
-  deps: { env: Env; pendingIndex: Map<string, PendingIndexEntry> }
+  deps: { env: Env; pendingIndex: Map<string, PendingIndexEntry>; configStorage: ConfigStorage }
 ): void {
   bot.on("chat_join_request", async (ctx) => {
     const request = ctx.update.chat_join_request;
@@ -20,6 +32,48 @@ export function registerJoinRequestHandler(
     const userId = from.id;
     const key = makePendingKey(chatId, userId);
     const now = Date.now();
+
+    const config = await getGroupConfig(deps.configStorage, chatId);
+    const isDenied = config.denylist.includes(userId);
+    if (isDenied) {
+      try {
+        await ctx.api.declineChatJoinRequest(chatId, userId);
+      } catch (error) {
+        console.error("Failed to decline denied join request", error);
+      }
+      try {
+        await ctx.api.banChatMember(chatId, userId);
+      } catch (error) {
+        console.error("Failed to ban denied user", error);
+      }
+      return;
+    }
+
+    const { pruned, removed } = pruneVerifiedUsers(
+      config.verifiedUsers,
+      now,
+      deps.env.VERIFIED_TTL_MS
+    );
+    if (removed) {
+      await setGroupConfig(deps.configStorage, chatId, { verifiedUsers: pruned });
+    }
+
+    const isAllowlisted = config.allowlist.includes(userId);
+    const isVerified = Boolean(pruned[userId]);
+    if (isAllowlisted || isVerified) {
+      let approved = false;
+      try {
+        await ctx.api.approveChatJoinRequest(chatId, userId);
+        approved = true;
+      } catch (error) {
+        console.error("Failed to auto-approve join request", error);
+      }
+      if (approved) {
+        await recordVerifiedUser(deps.configStorage, chatId, userId, now);
+        await showWelcomeMessage(ctx, chatId, userId, deps.configStorage, "welcome", false);
+      }
+      return;
+    }
 
     const captcha = generatePatternCaptcha();
     const nonce = generateNonce();

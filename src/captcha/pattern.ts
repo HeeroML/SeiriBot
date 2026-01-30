@@ -95,6 +95,96 @@ const QUESTION_POOL: CaptchaQuestion[] = [
       { text: "Monitor", emoji: "🖥️", correct: false },
       { text: "Croissant", emoji: "🥐", correct: true }
     ]
+  },
+  {
+    question: "Welches ist kein Gemuese?",
+    options: [
+      { text: "Karotte", emoji: "🥕", correct: false },
+      { text: "Brokkoli", emoji: "🥦", correct: false },
+      { text: "Kartoffel", emoji: "🥔", correct: false },
+      { text: "Keks", emoji: "🍪", correct: true }
+    ]
+  },
+  {
+    question: "Welches ist kein Musikinstrument?",
+    options: [
+      { text: "Gitarre", emoji: "🎸", correct: false },
+      { text: "Trommel", emoji: "🥁", correct: false },
+      { text: "Klavier", emoji: "🎹", correct: false },
+      { text: "Fahrrad", emoji: "🚲", correct: true }
+    ]
+  },
+  {
+    question: "Welches ist kein Sport?",
+    options: [
+      { text: "Fussball", emoji: "⚽", correct: false },
+      { text: "Basketball", emoji: "🏀", correct: false },
+      { text: "Tennis", emoji: "🎾", correct: false },
+      { text: "Banane", emoji: "🍌", correct: true }
+    ]
+  },
+  {
+    question: "Welches ist kein Koerperteil?",
+    options: [
+      { text: "Hand", emoji: "✋", correct: false },
+      { text: "Ohr", emoji: "👂", correct: false },
+      { text: "Nase", emoji: "👃", correct: false },
+      { text: "Messer", emoji: "🔪", correct: true }
+    ]
+  },
+  {
+    question: "Welches ist kein Schmuck?",
+    options: [
+      { text: "Ring", emoji: "💍", correct: false },
+      { text: "Kette", emoji: "📿", correct: false },
+      { text: "Edelstein", emoji: "💎", correct: false },
+      { text: "Schluessel", emoji: "🔑", correct: true }
+    ]
+  },
+  {
+    question: "Welches ist kein Gebaeck?",
+    options: [
+      { text: "Croissant", emoji: "🥐", correct: false },
+      { text: "Brot", emoji: "🍞", correct: false },
+      { text: "Keks", emoji: "🍪", correct: false },
+      { text: "Gabel", emoji: "🍴", correct: true }
+    ]
+  },
+  {
+    question: "Welches ist kein Vogel?",
+    options: [
+      { text: "Adler", emoji: "🦅", correct: false },
+      { text: "Kueken", emoji: "🐥", correct: false },
+      { text: "Ente", emoji: "🦆", correct: false },
+      { text: "Schnecke", emoji: "🐌", correct: true }
+    ]
+  },
+  {
+    question: "Welches ist kein Insekt?",
+    options: [
+      { text: "Biene", emoji: "🐝", correct: false },
+      { text: "Schmetterling", emoji: "🦋", correct: false },
+      { text: "Kaefer", emoji: "🪲", correct: false },
+      { text: "Schildkroete", emoji: "🐢", correct: true }
+    ]
+  },
+  {
+    question: "Welches ist kein Meerestier?",
+    options: [
+      { text: "Fisch", emoji: "🐟", correct: false },
+      { text: "Krake", emoji: "🐙", correct: false },
+      { text: "Delphin", emoji: "🐬", correct: false },
+      { text: "Katze", emoji: "🐱", correct: true }
+    ]
+  },
+  {
+    question: "Welches ist kein Spielzeug?",
+    options: [
+      { text: "Teddy", emoji: "🧸", correct: false },
+      { text: "Ball", emoji: "⚽", correct: false },
+      { text: "Puzzle", emoji: "🧩", correct: false },
+      { text: "Zahnbuerste", emoji: "🪥", correct: true }
+    ]
   }
 ];
 

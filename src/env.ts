@@ -7,6 +7,7 @@ export type Env = {
   CAPTCHA_TTL_MS: number;
   MAX_ATTEMPTS: number;
   SWEEP_INTERVAL_MS: number;
+  VERIFIED_TTL_MS: number;
 };
 
 function toInt(value: string | undefined, fallback: number): number {
@@ -24,5 +25,6 @@ export const env: Env = {
   BOT_TOKEN,
   CAPTCHA_TTL_MS: toInt(process.env.CAPTCHA_TTL_MS, 10 * 60 * 1000),
   MAX_ATTEMPTS: toInt(process.env.MAX_ATTEMPTS, 3),
-  SWEEP_INTERVAL_MS: toInt(process.env.SWEEP_INTERVAL_MS, 60 * 1000)
+  SWEEP_INTERVAL_MS: toInt(process.env.SWEEP_INTERVAL_MS, 60 * 1000),
+  VERIFIED_TTL_MS: toInt(process.env.VERIFIED_TTL_MS, 7 * 24 * 60 * 60 * 1000)
 };
