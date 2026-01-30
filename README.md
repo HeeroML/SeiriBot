@@ -36,7 +36,7 @@ cp .env.example .env
 
 Optional environment variables:
 - `CAPTCHA_TTL_MS` (default 600000)
-- `MAX_ATTEMPTS` (default 3)
+- `MAX_ATTEMPTS` (default 2)
 - `SWEEP_INTERVAL_MS` (default 60000)
 - `VERIFIED_TTL_MS` (default 604800000)
 

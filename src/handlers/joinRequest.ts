@@ -32,6 +32,7 @@ export function registerJoinRequestHandler(
     const userId = from.id;
     const key = makePendingKey(chatId, userId);
     const now = Date.now();
+    const maxAttempts = Math.min(deps.env.MAX_ATTEMPTS, 2);
 
     const config = await getGroupConfig(deps.configStorage, chatId);
     const isDenied = config.denylist.includes(userId);
@@ -86,7 +87,7 @@ export function registerJoinRequestHandler(
       options: captcha.options,
       correctOption: captcha.correctIndex,
       attempts: 0,
-      maxAttempts: deps.env.MAX_ATTEMPTS,
+      maxAttempts,
       createdAt: now,
       expiresAt: now + deps.env.CAPTCHA_TTL_MS,
       nonce
@@ -127,9 +128,9 @@ export function registerJoinRequestHandler(
       "Wähle die richtige Antwort (A-D).",
       "Fuer Textmodus tippe auf \"Textmodus\".",
       "",
-      `Du hast ${deps.env.MAX_ATTEMPTS} Versuch${
-        deps.env.MAX_ATTEMPTS === 1 ? "" : "e"
-      }. Läuft in ~${minutes} Minute${minutes === 1 ? "" : "n"} ab.`
+      `Du hast ${maxAttempts} Versuch${maxAttempts === 1 ? "" : "e"}. Läuft in ~${
+        minutes
+      } Minute${minutes === 1 ? "" : "n"} ab.`
     ].join("\n");
 
     try {

@@ -14,9 +14,7 @@ const TEST_RE = /^test\|(\d+)\|([1-4])\|([a-f0-9]+)$/i;
 const TEST_TEXT_RE = /^test-text\|(\d+)\|([a-f0-9]+)$/i;
 const TEST_BAN_RE = /^test-ban\|(\d+)\|([a-f0-9]+)$/i;
 
-const BAN_CONFIRM_WINDOW_MS = 2 * 60 * 1000;
-const COOLDOWN_BASE_MS = 5000;
-const COOLDOWN_MAX_MS = 60000;
+const COOLDOWN_MS = 4000;
 
 export type CaptchaCallbackData = {
   chatId: number;
@@ -86,9 +84,8 @@ function getCooldownSeconds(pending: PendingCaptcha, now: number): number {
 }
 
 function applyCooldown(pending: PendingCaptcha, now: number): number {
-  const delayMs = Math.min(COOLDOWN_MAX_MS, COOLDOWN_BASE_MS * Math.max(1, pending.attempts));
-  pending.cooldownUntil = now + delayMs;
-  return Math.ceil(delayMs / 1000);
+  pending.cooldownUntil = now + COOLDOWN_MS;
+  return Math.ceil(COOLDOWN_MS / 1000);
 }
 
 export function registerCallbackHandlers(
@@ -197,17 +194,7 @@ export function registerCallbackHandlers(
       return;
     }
 
-    const now = Date.now();
-    if (!testCaptcha.banConfirmAt || now - testCaptcha.banConfirmAt > BAN_CONFIRM_WINDOW_MS) {
-      testCaptcha.banConfirmAt = now;
-      ctx.session.testCaptcha = testCaptcha;
-      await ctx.answerCallbackQuery({ text: "Nicht hier drücken. Nochmal tippen zum Bestätigen." });
-      return;
-    }
-
-    testCaptcha.banConfirmAt = undefined;
-    ctx.session.testCaptcha = testCaptcha;
-    await ctx.answerCallbackQuery({ text: "Bestätigt." });
+    await ctx.answerCallbackQuery({ text: "Das war der falsche Button." });
   });
 
   bot.callbackQuery(CALLBACK_RE, async (ctx) => {
@@ -399,14 +386,6 @@ export function registerCallbackHandlers(
       return;
     }
 
-    if (!pending.banConfirmAt || now - pending.banConfirmAt > BAN_CONFIRM_WINDOW_MS) {
-      pending.banConfirmAt = now;
-      ctx.session.pendingCaptchas[key] = pending;
-      await ctx.answerCallbackQuery({ text: "Nicht hier drücken. Nochmal tippen zum Bestätigen." });
-      return;
-    }
-
-    pending.banConfirmAt = undefined;
     pending.status = "processing";
     ctx.session.pendingCaptchas[key] = pending;
     await ctx.answerCallbackQuery({ text: "Alles klar." });

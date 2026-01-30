@@ -16,7 +16,6 @@ export type PendingCaptcha = {
   nonce: string;
   lastCaptchaMessageId?: number;
   textMode?: boolean;
-  banConfirmAt?: number;
   cooldownUntil?: number;
   status?: "pending" | "processing";
 };
@@ -31,7 +30,6 @@ export type SessionData = {
     nonce: string;
     createdAt: number;
     textMode?: boolean;
-    banConfirmAt?: number;
   };
 };
 

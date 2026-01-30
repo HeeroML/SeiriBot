@@ -24,7 +24,7 @@ if (!BOT_TOKEN) {
 export const env: Env = {
   BOT_TOKEN,
   CAPTCHA_TTL_MS: toInt(process.env.CAPTCHA_TTL_MS, 10 * 60 * 1000),
-  MAX_ATTEMPTS: toInt(process.env.MAX_ATTEMPTS, 3),
+  MAX_ATTEMPTS: toInt(process.env.MAX_ATTEMPTS, 2),
   SWEEP_INTERVAL_MS: toInt(process.env.SWEEP_INTERVAL_MS, 60 * 1000),
   VERIFIED_TTL_MS: toInt(process.env.VERIFIED_TTL_MS, 7 * 24 * 60 * 60 * 1000)
 };
