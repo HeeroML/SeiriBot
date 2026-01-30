@@ -1,32 +1,45 @@
-import { InlineKeyboard, type Bot } from "grammy";
+import { type Bot } from "grammy";
 import type { MyContext } from "../types";
 import { generateNonce, generatePatternCaptcha } from "../captcha/pattern";
-import { buildTestCallbackData } from "./callbacks";
+import { buildChoiceKeyboard } from "../captcha/render";
+import { buildTestBanCallbackData, buildTestCallbackData, buildTestTextModeCallbackData } from "./callbacks";
 
 export function registerTestCaptchaHandlers(bot: Bot<MyContext>): void {
   bot.command("test", async (ctx) => {
     if (!ctx.from) return;
 
+    const userId = ctx.from.id;
+
     const captcha = generatePatternCaptcha();
     const nonce = generateNonce();
     ctx.session.testCaptcha = {
-      correctRow: captcha.brokenRow,
+      question: captcha.question,
+      options: captcha.options,
+      correctOption: captcha.correctIndex,
       nonce,
       createdAt: Date.now()
     };
 
-    const keyboard = new InlineKeyboard()
-      .text("1", buildTestCallbackData(ctx.from.id, 1, nonce))
-      .text("2", buildTestCallbackData(ctx.from.id, 2, nonce))
-      .row()
-      .text("3", buildTestCallbackData(ctx.from.id, 3, nonce))
-      .text("4", buildTestCallbackData(ctx.from.id, 4, nonce));
+    const keyboard = buildChoiceKeyboard(
+      captcha.options,
+      (index) => buildTestCallbackData(userId, index, nonce),
+      {
+        textMode: {
+          label: "🔎 Textmodus",
+          callbackData: buildTestTextModeCallbackData(userId, nonce)
+        },
+        ban: {
+          label: "Nicht hier drücken",
+          callbackData: buildTestBanCallbackData(userId, nonce)
+        }
+      }
+    );
 
     const messageText = [
       "Test-Captcha (keine echte Anfrage).",
-      "Finde die Reihe (1-4), in der das Muster gebrochen ist:",
-      "",
-      captcha.text
+      captcha.question,
+      "Wähle die richtige Antwort (A-D).",
+      "Fuer Textmodus tippe auf \"Textmodus\"."
     ].join("\n");
 
     if (ctx.chat?.type === "private") {
@@ -35,7 +48,7 @@ export function registerTestCaptchaHandlers(bot: Bot<MyContext>): void {
     }
 
     try {
-      await ctx.api.sendMessage(ctx.from.id, messageText, { reply_markup: keyboard });
+      await ctx.api.sendMessage(userId, messageText, { reply_markup: keyboard });
       await ctx.reply("Ich habe dir das Test-Captcha per DM geschickt.");
     } catch (error) {
       await ctx.reply(messageText, { reply_markup: keyboard });

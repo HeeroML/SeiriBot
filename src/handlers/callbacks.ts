@@ -1,50 +1,94 @@
 import { InlineKeyboard, type Bot } from "grammy";
-import type { MyContext, PendingIndexEntry } from "../types";
+import type { MyContext, PendingCaptcha, PendingIndexEntry } from "../types";
 import { makePendingKey } from "../types";
+import { buildNumericKeyboard, formatOptionsText } from "../captcha/render";
 import type { ConfigStorage } from "../config/store";
 import { getGroupConfig, renderTemplate } from "../config/store";
 
 const CALLBACK_PREFIX = "captcha";
 const CALLBACK_RE = /^captcha\|(-?\d+)\|(\d+)\|([1-4])\|([a-f0-9]+)$/i;
+const TEXT_RE = /^captcha-text\|(-?\d+)\|(\d+)\|([a-f0-9]+)$/i;
 const BAN_RE = /^captcha-ban\|(-?\d+)\|(\d+)\|([a-f0-9]+)$/i;
 const WELCOME_RE = /^welcome\|(-?\d+)\|(\d+)\|(welcome|rules)$/i;
 const TEST_RE = /^test\|(\d+)\|([1-4])\|([a-f0-9]+)$/i;
+const TEST_TEXT_RE = /^test-text\|(\d+)\|([a-f0-9]+)$/i;
+const TEST_BAN_RE = /^test-ban\|(\d+)\|([a-f0-9]+)$/i;
+
+const BAN_CONFIRM_WINDOW_MS = 2 * 60 * 1000;
+const COOLDOWN_BASE_MS = 5000;
+const COOLDOWN_MAX_MS = 60000;
 
 export type CaptchaCallbackData = {
   chatId: number;
   userId: number;
-  row: number;
+  choice: number;
   nonce: string;
 };
 
 export function buildCaptchaCallbackData(
   chatId: number,
   userId: number,
-  row: number,
+  choice: number,
   nonce: string
 ): string {
-  return `${CALLBACK_PREFIX}|${chatId}|${userId}|${row}|${nonce}`;
+  return `${CALLBACK_PREFIX}|${chatId}|${userId}|${choice}|${nonce}`;
 }
 
 export function buildBanCallbackData(chatId: number, userId: number, nonce: string): string {
   return `captcha-ban|${chatId}|${userId}|${nonce}`;
 }
 
-export function buildTestCallbackData(userId: number, row: number, nonce: string): string {
-  return `test|${userId}|${row}|${nonce}`;
+export function buildTextModeCallbackData(chatId: number, userId: number, nonce: string): string {
+  return `captcha-text|${chatId}|${userId}|${nonce}`;
+}
+
+export function buildTestCallbackData(userId: number, choice: number, nonce: string): string {
+  return `test|${userId}|${choice}|${nonce}`;
+}
+
+export function buildTestTextModeCallbackData(userId: number, nonce: string): string {
+  return `test-text|${userId}|${nonce}`;
+}
+
+export function buildTestBanCallbackData(userId: number, nonce: string): string {
+  return `test-ban|${userId}|${nonce}`;
 }
 
 export function parseCaptchaCallback(data: string | undefined): CaptchaCallbackData | null {
   if (!data) return null;
   const match = data.match(CALLBACK_RE);
   if (!match) return null;
-  const [, chatIdStr, userIdStr, rowStr, nonce] = match;
+  const [, chatIdStr, userIdStr, choiceStr, nonce] = match;
   return {
     chatId: Number(chatIdStr),
     userId: Number(userIdStr),
-    row: Number(rowStr),
+    choice: Number(choiceStr),
     nonce
   };
+}
+
+function parseChoiceFromText(text: string): number | null {
+  const trimmed = text.trim().toUpperCase();
+  if (!trimmed) return null;
+  const firstChar = trimmed[0];
+  if (["1", "2", "3", "4"].includes(firstChar)) {
+    return Number(firstChar);
+  }
+  if (["A", "B", "C", "D"].includes(firstChar)) {
+    return firstChar.charCodeAt(0) - 64;
+  }
+  return null;
+}
+
+function getCooldownSeconds(pending: PendingCaptcha, now: number): number {
+  if (!pending.cooldownUntil || pending.cooldownUntil <= now) return 0;
+  return Math.ceil((pending.cooldownUntil - now) / 1000);
+}
+
+function applyCooldown(pending: PendingCaptcha, now: number): number {
+  const delayMs = Math.min(COOLDOWN_MAX_MS, COOLDOWN_BASE_MS * Math.max(1, pending.attempts));
+  pending.cooldownUntil = now + delayMs;
+  return Math.ceil(delayMs / 1000);
 }
 
 export function registerCallbackHandlers(
@@ -59,9 +103,9 @@ export function registerCallbackHandlers(
     const match = data.match(TEST_RE);
     if (!match) return;
 
-    const [, userIdStr, rowStr, nonce] = match;
+    const [, userIdStr, choiceStr, nonce] = match;
     const userId = Number(userIdStr);
-    const row = Number(rowStr);
+    const choice = Number(choiceStr);
 
     if (ctx.from?.id !== userId) {
       await ctx.answerCallbackQuery({ text: "Dieser Button ist nicht für dich." });
@@ -74,17 +118,98 @@ export function registerCallbackHandlers(
       return;
     }
 
-    const correct = row === testCaptcha.correctRow;
+    const correct = choice === testCaptcha.correctOption;
     await ctx.answerCallbackQuery({
       text: correct ? "✅ Richtig!" : "❌ Falsch."
     });
+  });
+
+  bot.callbackQuery(TEST_TEXT_RE, async (ctx) => {
+    const data = ctx.callbackQuery.data ?? "";
+    const match = data.match(TEST_TEXT_RE);
+    if (!match) return;
+
+    const [, userIdStr, nonce] = match;
+    const userId = Number(userIdStr);
+
+    if (ctx.from?.id !== userId) {
+      await ctx.answerCallbackQuery({ text: "Dieser Button ist nicht für dich." });
+      return;
+    }
+
+    const testCaptcha = ctx.session.testCaptcha;
+    if (!testCaptcha || testCaptcha.nonce !== nonce) {
+      await ctx.answerCallbackQuery({ text: "Abgelaufen oder bereits ersetzt." });
+      return;
+    }
+
+    if (testCaptcha.textMode) {
+      await ctx.answerCallbackQuery({ text: "Textmodus ist bereits aktiv." });
+      return;
+    }
+
+    testCaptcha.textMode = true;
+    ctx.session.testCaptcha = testCaptcha;
+    await ctx.answerCallbackQuery({ text: "Textmodus aktiviert." });
+
+    const messageText = [
+      "Textmodus aktiviert. Antworte mit 1-4.",
+      testCaptcha.question,
+      "",
+      formatOptionsText(testCaptcha.options)
+    ].join("\n");
+
+    const keyboard = buildNumericKeyboard(
+      testCaptcha.options.length,
+      (index) => buildTestCallbackData(userId, index, nonce),
+      {
+        ban: {
+          label: "Nicht hier drücken",
+          callbackData: buildTestBanCallbackData(userId, nonce)
+        }
+      }
+    );
+
+    await ctx.reply(messageText, { reply_markup: keyboard });
+  });
+
+  bot.callbackQuery(TEST_BAN_RE, async (ctx) => {
+    const data = ctx.callbackQuery.data ?? "";
+    const match = data.match(TEST_BAN_RE);
+    if (!match) return;
+
+    const [, userIdStr, nonce] = match;
+    const userId = Number(userIdStr);
+
+    if (ctx.from?.id !== userId) {
+      await ctx.answerCallbackQuery({ text: "Dieser Button ist nicht für dich." });
+      return;
+    }
+
+    const testCaptcha = ctx.session.testCaptcha;
+    if (!testCaptcha || testCaptcha.nonce !== nonce) {
+      await ctx.answerCallbackQuery({ text: "Abgelaufen oder bereits ersetzt." });
+      return;
+    }
+
+    const now = Date.now();
+    if (!testCaptcha.banConfirmAt || now - testCaptcha.banConfirmAt > BAN_CONFIRM_WINDOW_MS) {
+      testCaptcha.banConfirmAt = now;
+      ctx.session.testCaptcha = testCaptcha;
+      await ctx.answerCallbackQuery({ text: "Nicht hier drücken. Nochmal tippen zum Bestätigen." });
+      return;
+    }
+
+    testCaptcha.banConfirmAt = undefined;
+    ctx.session.testCaptcha = testCaptcha;
+    await ctx.answerCallbackQuery({ text: "Bestätigt." });
   });
 
   bot.callbackQuery(CALLBACK_RE, async (ctx) => {
     const data = parseCaptchaCallback(ctx.callbackQuery.data);
     if (!data) return;
 
-    const { chatId, userId, row, nonce } = data;
+    const { chatId, userId, choice, nonce } = data;
 
     if (ctx.from?.id !== userId) {
       await ctx.answerCallbackQuery({ text: "Dieser Button ist nicht für dich." });
@@ -110,7 +235,13 @@ export function registerCallbackHandlers(
       return;
     }
 
-    if (row === pending.correctRow) {
+    const cooldownSeconds = getCooldownSeconds(pending, now);
+    if (cooldownSeconds > 0) {
+      await ctx.answerCallbackQuery({ text: `Bitte warte ${cooldownSeconds} Sek.` });
+      return;
+    }
+
+    if (choice === pending.correctOption) {
       pending.status = "processing";
       ctx.session.pendingCaptchas[key] = pending;
       await ctx.answerCallbackQuery({ text: "✅ Richtig! Wird freigegeben..." });
@@ -139,14 +270,83 @@ export function registerCallbackHandlers(
       }
       deps.pendingIndex.delete(key);
       delete ctx.session.pendingCaptchas[key];
-      await tryEditCaptchaMessage(ctx, "❌ Too many attempts. Your join request was declined.");
+      await tryEditCaptchaMessage(ctx, "❌ Zu viele Versuche. Deine Anfrage wurde abgelehnt.");
       return;
     }
 
+    const waitSeconds = applyCooldown(pending, now);
     ctx.session.pendingCaptchas[key] = pending;
     await ctx.answerCallbackQuery({
-      text: `Falsche Reihe. Noch ${remaining} Versuch${remaining === 1 ? "" : "e"}.`
+      text: `❌ Falsch. Noch ${remaining} Versuch${remaining === 1 ? "" : "e"}. Warte ${waitSeconds} Sek.`
     });
+  });
+
+  bot.callbackQuery(TEXT_RE, async (ctx) => {
+    const data = ctx.callbackQuery.data ?? "";
+    const match = data.match(TEXT_RE);
+    if (!match) return;
+
+    const [, chatIdStr, userIdStr, nonce] = match;
+    const chatId = Number(chatIdStr);
+    const userId = Number(userIdStr);
+
+    if (ctx.from?.id !== userId) {
+      await ctx.answerCallbackQuery({ text: "Dieser Button ist nicht für dich." });
+      return;
+    }
+
+    const key = makePendingKey(chatId, userId);
+    const pending = ctx.session.pendingCaptchas[key];
+
+    if (!pending || pending.nonce !== nonce) {
+      await ctx.answerCallbackQuery({ text: "Abgelaufen oder bereits verarbeitet." });
+      return;
+    }
+
+    const now = Date.now();
+    if (pending.expiresAt <= now) {
+      await ctx.answerCallbackQuery({ text: "Abgelaufen oder bereits verarbeitet." });
+      return;
+    }
+
+    if (pending.status === "processing") {
+      await ctx.answerCallbackQuery({ text: "Wird bereits verarbeitet." });
+      return;
+    }
+
+    if (pending.textMode) {
+      await ctx.answerCallbackQuery({ text: "Textmodus ist bereits aktiv." });
+      return;
+    }
+
+    pending.textMode = true;
+    ctx.session.pendingCaptchas[key] = pending;
+    await ctx.answerCallbackQuery({ text: "Textmodus aktiviert." });
+
+    const remaining = pending.maxAttempts - pending.attempts;
+    const messageText = [
+      "Textmodus aktiviert. Antworte mit 1-4.",
+      pending.question,
+      "",
+      formatOptionsText(pending.options),
+      "",
+      `Du hast noch ${remaining} Versuch${remaining === 1 ? "" : "e"}.`
+    ].join("\n");
+
+    const keyboard = buildNumericKeyboard(
+      pending.options.length,
+      (index) => buildCaptchaCallbackData(chatId, userId, index, nonce),
+      {
+        ban: {
+          label: "Nicht hier drücken",
+          callbackData: buildBanCallbackData(chatId, userId, nonce)
+        }
+      }
+    );
+
+    const message = await ctx.reply(messageText, { reply_markup: keyboard });
+    pending.lastCaptchaMessageId = message.message_id;
+    ctx.session.pendingCaptchas[key] = pending;
   });
 
   bot.callbackQuery(BAN_RE, async (ctx) => {
@@ -182,9 +382,17 @@ export function registerCallbackHandlers(
       return;
     }
 
+    if (!pending.banConfirmAt || now - pending.banConfirmAt > BAN_CONFIRM_WINDOW_MS) {
+      pending.banConfirmAt = now;
+      ctx.session.pendingCaptchas[key] = pending;
+      await ctx.answerCallbackQuery({ text: "Nicht hier drücken. Nochmal tippen zum Bestätigen." });
+      return;
+    }
+
+    pending.banConfirmAt = undefined;
     pending.status = "processing";
     ctx.session.pendingCaptchas[key] = pending;
-    await ctx.answerCallbackQuery({ text: "Anfrage geschlossen." });
+    await ctx.answerCallbackQuery({ text: "Alles klar." });
 
     try {
       await ctx.api.declineChatJoinRequest(chatId, userId);
@@ -200,7 +408,89 @@ export function registerCallbackHandlers(
 
     deps.pendingIndex.delete(key);
     delete ctx.session.pendingCaptchas[key];
-    await tryEditCaptchaMessage(ctx, "Anfrage geschlossen.");
+    await tryEditCaptchaMessage(ctx, "Anfrage gespeichert.");
+  });
+
+  bot.on("message:text", async (ctx, next) => {
+    if (ctx.chat?.type !== "private") return next();
+    const text = ctx.message.text ?? "";
+    if (text.trim().startsWith("/")) return next();
+
+    const choice = parseChoiceFromText(text);
+    if (!choice) return next();
+
+    const now = Date.now();
+    const pendingEntries = Object.entries(ctx.session.pendingCaptchas).filter(
+      ([, pending]) => pending && pending.textMode && pending.status !== "processing"
+    );
+
+    if (pendingEntries.length > 0) {
+      const [key, pending] = pendingEntries.sort(
+        ([, left], [, right]) => right.createdAt - left.createdAt
+      )[0];
+
+      if (pending.expiresAt <= now) {
+        deps.pendingIndex.delete(key);
+        delete ctx.session.pendingCaptchas[key];
+        await ctx.reply("Abgelaufen oder bereits verarbeitet.");
+        return;
+      }
+
+      const cooldownSeconds = getCooldownSeconds(pending, now);
+      if (cooldownSeconds > 0) {
+        await ctx.reply(`Bitte warte ${cooldownSeconds} Sek.`);
+        return;
+      }
+
+      if (choice === pending.correctOption) {
+        pending.status = "processing";
+        ctx.session.pendingCaptchas[key] = pending;
+        await ctx.reply("✅ Richtig! Wird freigegeben...");
+        try {
+          await ctx.api.approveChatJoinRequest(pending.chatId, pending.userId);
+        } catch (error) {
+          console.error("Failed to approve join request", error);
+        }
+        deps.pendingIndex.delete(key);
+        delete ctx.session.pendingCaptchas[key];
+        await showWelcomeMessage(ctx, pending.chatId, pending.userId, deps.configStorage, "welcome", false);
+        return;
+      }
+
+      pending.attempts += 1;
+      const remaining = pending.maxAttempts - pending.attempts;
+
+      if (remaining <= 0) {
+        pending.status = "processing";
+        ctx.session.pendingCaptchas[key] = pending;
+        await ctx.reply("❌ Zu viele Versuche. Wird abgelehnt...");
+        try {
+          await ctx.api.declineChatJoinRequest(pending.chatId, pending.userId);
+        } catch (error) {
+          console.error("Failed to decline join request", error);
+        }
+        deps.pendingIndex.delete(key);
+        delete ctx.session.pendingCaptchas[key];
+        await ctx.reply("Deine Anfrage wurde abgelehnt.");
+        return;
+      }
+
+      const waitSeconds = applyCooldown(pending, now);
+      ctx.session.pendingCaptchas[key] = pending;
+      await ctx.reply(
+        `❌ Falsch. Noch ${remaining} Versuch${remaining === 1 ? "" : "e"}. Warte ${waitSeconds} Sek.`
+      );
+      return;
+    }
+
+    const testCaptcha = ctx.session.testCaptcha;
+    if (testCaptcha?.textMode) {
+      const correct = choice === testCaptcha.correctOption;
+      await ctx.reply(correct ? "✅ Richtig!" : "❌ Falsch.");
+      return;
+    }
+
+    return next();
   });
 
   bot.callbackQuery(WELCOME_RE, async (ctx) => {

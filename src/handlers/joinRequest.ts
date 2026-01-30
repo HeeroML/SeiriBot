@@ -1,10 +1,10 @@
 import type { Bot } from "grammy";
-import { InlineKeyboard } from "grammy";
 import type { Env } from "../env";
 import { generateNonce, generatePatternCaptcha } from "../captcha/pattern";
+import { buildChoiceKeyboard } from "../captcha/render";
 import type { MyContext, PendingCaptcha, PendingIndexEntry } from "../types";
 import { makePendingKey } from "../types";
-import { buildBanCallbackData, buildCaptchaCallbackData } from "./callbacks";
+import { buildBanCallbackData, buildCaptchaCallbackData, buildTextModeCallbackData } from "./callbacks";
 
 export function registerJoinRequestHandler(
   bot: Bot<MyContext>,
@@ -28,7 +28,9 @@ export function registerJoinRequestHandler(
       chatId,
       userId,
       userChatId,
-      correctRow: captcha.brokenRow,
+      question: captcha.question,
+      options: captcha.options,
+      correctOption: captcha.correctIndex,
       attempts: 0,
       maxAttempts: deps.env.MAX_ATTEMPTS,
       createdAt: now,
@@ -46,14 +48,20 @@ export function registerJoinRequestHandler(
       sessionKey: userId.toString()
     });
 
-    const keyboard = new InlineKeyboard()
-      .text("1", buildCaptchaCallbackData(chatId, userId, 1, nonce))
-      .text("2", buildCaptchaCallbackData(chatId, userId, 2, nonce))
-      .row()
-      .text("3", buildCaptchaCallbackData(chatId, userId, 3, nonce))
-      .text("4", buildCaptchaCallbackData(chatId, userId, 4, nonce))
-      .row()
-      .text("🚫 Not me", buildBanCallbackData(chatId, userId, nonce));
+    const keyboard = buildChoiceKeyboard(
+      captcha.options,
+      (index) => buildCaptchaCallbackData(chatId, userId, index, nonce),
+      {
+        textMode: {
+          label: "🔎 Textmodus",
+          callbackData: buildTextModeCallbackData(chatId, userId, nonce)
+        },
+        ban: {
+          label: "Nicht hier drücken",
+          callbackData: buildBanCallbackData(chatId, userId, nonce)
+        }
+      }
+    );
 
     const minutes = Math.max(1, Math.ceil(deps.env.CAPTCHA_TTL_MS / 60000));
     const title = chat.title ?? "this group";
@@ -61,11 +69,10 @@ export function registerJoinRequestHandler(
     const messageText = [
       `👋 Hi ${from.first_name ?? "du"}!`,
       `Du hast eine Beitrittsanfrage gestellt für: ${title}.`,
-      "Finde die Reihe (1–4), in der das Muster gebrochen ist:",
+      captcha.question,
+      "Wähle die richtige Antwort (A-D).",
+      "Fuer Textmodus tippe auf \"Textmodus\".",
       "",
-      captcha.text,
-      "",
-      "Wenn das nicht du warst, tippe den roten Knopf, um weitere Anfragen zu blockieren.",
       `Du hast ${deps.env.MAX_ATTEMPTS} Versuch${
         deps.env.MAX_ATTEMPTS === 1 ? "" : "e"
       }. Läuft in ~${minutes} Minute${minutes === 1 ? "" : "n"} ab.`

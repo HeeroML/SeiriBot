@@ -1,17 +1,23 @@
 import type { Context, SessionFlavor } from "grammy";
 import type { ChatMembersFlavor } from "@grammyjs/chat-members";
+import type { CaptchaOption } from "./captcha/pattern";
 
 export type PendingCaptcha = {
   chatId: number;
   userId: number;
   userChatId: number;
-  correctRow: number;
+  question: string;
+  options: CaptchaOption[];
+  correctOption: number;
   attempts: number;
   maxAttempts: number;
   createdAt: number;
   expiresAt: number;
   nonce: string;
   lastCaptchaMessageId?: number;
+  textMode?: boolean;
+  banConfirmAt?: number;
+  cooldownUntil?: number;
   status?: "pending" | "processing";
 };
 
@@ -20,9 +26,13 @@ export type SessionData = {
   verifiedChats?: Record<string, number>;
   activeConfigChatId?: number;
   testCaptcha?: {
-    correctRow: number;
+    question: string;
+    options: CaptchaOption[];
+    correctOption: number;
     nonce: string;
     createdAt: number;
+    textMode?: boolean;
+    banConfirmAt?: number;
   };
 };
 
