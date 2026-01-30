@@ -63,7 +63,11 @@ export function registerConfigHandlers(
             message_thread_id: mappedThreadId
           });
         } else {
-          const createdThreadId = await createPrivateTopic(ctx, adminInfo.chatTitle, targetChatId);
+          const createdThreadId = await createPrivateTopic(
+            ctx,
+            adminInfo.chatTitle,
+            ctx.chat.id
+          );
           if (createdThreadId) {
             if (!ctx.session.configThreads) ctx.session.configThreads = {};
             ctx.session.configThreads[String(createdThreadId)] = targetChatId;
@@ -88,8 +92,71 @@ export function registerConfigHandlers(
       ctx.session.activeConfigChatId = ctx.chat.id;
       rememberManagedChat(ctx, ctx.chat.id, ctx.chat.title ?? adminInfo.chatTitle);
       const config = await getGroupConfig(configStorage, ctx.chat.id);
+
+      const userId = ctx.from?.id;
+      if (userId) {
+        const topicsAvailable = hasPrivateTopicsEnabled(ctx);
+        let sent = false;
+
+        if (topicsAvailable) {
+          let threadForChat = getThreadIdForChat(ctx, ctx.chat.id);
+          if (!threadForChat) {
+            threadForChat = await createPrivateTopic(
+              ctx,
+              ctx.chat.title ?? adminInfo.chatTitle,
+              userId
+            );
+            if (threadForChat) {
+              if (!ctx.session.configThreads) ctx.session.configThreads = {};
+              ctx.session.configThreads[String(threadForChat)] = ctx.chat.id;
+            }
+          }
+
+          if (threadForChat) {
+            try {
+              await ctx.api.sendMessage(
+                userId,
+                formatConfigMessage(
+                  config,
+                  ctx.chat.title ?? adminInfo.chatTitle,
+                  ctx.chat.id,
+                  true,
+                  threadForChat
+                ),
+                { message_thread_id: threadForChat }
+              );
+              sent = true;
+            } catch (error) {
+              console.error("Failed to send config in topic", error);
+            }
+          }
+        }
+
+        if (!sent) {
+          try {
+            await ctx.api.sendMessage(
+              userId,
+              formatConfigMessage(
+                config,
+                ctx.chat.title ?? adminInfo.chatTitle,
+                ctx.chat.id,
+                true
+              )
+            );
+            sent = true;
+          } catch (error) {
+            console.error("Failed to send config via DM", error);
+          }
+        }
+
+        if (sent) {
+          await ctx.reply("Ich habe dir die Konfiguration per DM geschickt.");
+          return;
+        }
+      }
+
       await ctx.reply(
-        formatConfigMessage(config, ctx.chat.title ?? adminInfo.chatTitle, ctx.chat.id, false)
+        "Ich konnte dir keine DM senden. Bitte starte den Bot im Privat-Chat und nutze /config."
       );
       return;
     }
@@ -373,10 +440,9 @@ async function createPrivateTopic(
   title: string | undefined,
   chatId: number
 ): Promise<number | undefined> {
-  if (!ctx.chat) return undefined;
   const topicName = title ? `${title}` : `Chat ${chatId}`;
   try {
-    const topic = await ctx.api.createForumTopic(ctx.chat.id, topicName);
+    const topic = await ctx.api.createForumTopic(chatId, topicName);
     return topic.message_thread_id;
   } catch (error) {
     console.error("Failed to create private topic", error);

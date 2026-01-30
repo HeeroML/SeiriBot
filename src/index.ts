@@ -47,23 +47,27 @@ bot.command("start", async (ctx) => {
   const topicsEnabled = hasPrivateTopicsEnabled(ctx);
   const managedChats = ctx.session.managedChats ?? {};
   const configThreads = ctx.session.configThreads ?? {};
-  const threadsByChat: Record<string, number[]> = {};
-
-  Object.entries(configThreads).forEach(([threadKey, chatId]) => {
-    if (!threadsByChat[String(chatId)]) threadsByChat[String(chatId)] = [];
-    const threadNumber = Number(threadKey);
-    if (Number.isFinite(threadNumber)) threadsByChat[String(chatId)].push(threadNumber);
-  });
 
   const lines: string[] = [
     "Hi! Hier ist deine Uebersicht.",
     ""
   ];
 
+  const allChatIds = new Set([
+    ...Object.keys(managedChats),
+    ...Object.values(configThreads).map((id) => String(id))
+  ]);
+  const adminChatIds = await filterAdminChatIds(ctx, allChatIds);
+  const prunedManagedChats = pruneManagedChats(managedChats, adminChatIds);
+  const prunedConfigThreads = pruneConfigThreads(configThreads, adminChatIds);
+  ctx.session.managedChats = prunedManagedChats;
+  ctx.session.configThreads = prunedConfigThreads;
+  const threadsByChat = buildThreadsByChat(prunedConfigThreads);
+
   if (threadId) {
-    const mappedChatId = configThreads[String(threadId)];
+    const mappedChatId = prunedConfigThreads[String(threadId)];
     if (mappedChatId) {
-      const entry = managedChats[String(mappedChatId)];
+      const entry = prunedManagedChats[String(mappedChatId)];
       const title = entry?.title ?? String(mappedChatId);
       lines.push(`Dieses Thema ist verbunden mit: ${title} (${mappedChatId}).`);
     } else {
@@ -72,50 +76,25 @@ bot.command("start", async (ctx) => {
     lines.push("");
   }
 
-  const allChatIds = new Set([
-    ...Object.keys(managedChats),
-    ...Object.values(configThreads).map((id) => String(id))
-  ]);
-
-  if (!threadId && topicsEnabled && allChatIds.size > 0) {
-    const createdTopics: number[] = [];
-    for (const chatId of allChatIds) {
-      const existingThread = findThreadIdForChat(configThreads, Number(chatId));
-      if (existingThread) continue;
-      const title = managedChats[chatId]?.title ?? chatId;
-      const createdThreadId = await createPrivateTopic(ctx, String(title));
-      if (createdThreadId) {
-        ctx.session.configThreads = ctx.session.configThreads ?? {};
-        ctx.session.configThreads[String(createdThreadId)] = Number(chatId);
-        createdTopics.push(createdThreadId);
-        await ctx.api.sendMessage(
-          ctx.chat.id,
-          `Dieses Thema ist verbunden mit ${title} (${chatId}).`,
-          { message_thread_id: createdThreadId }
-        );
-      }
-    }
-    if (createdTopics.length > 0) {
-      lines.push(`Neue Themen erstellt: ${createdTopics.join(", ")}.`);
-      lines.push("");
-    }
-  }
-
-  if (allChatIds.size === 0) {
+  if (adminChatIds.size === 0) {
     lines.push("Keine Gruppen gespeichert. Nutze /config in deiner Gruppe.");
   } else {
     lines.push("Deine Gruppen:");
-    Array.from(allChatIds)
+    Array.from(adminChatIds)
       .sort()
       .forEach((chatId) => {
-        const entry = managedChats[chatId];
+        const entry = prunedManagedChats[chatId];
         const title = entry?.title ?? chatId;
         const topics = threadsByChat[chatId];
         const topicLabel = topics?.length ? ` | Themen: ${topics.join(", ")}` : "";
         lines.push(`- ${title} (${chatId})${topicLabel}`);
       });
     lines.push("");
-    lines.push("Nutze /config <chat-id> in einem Thema, um es zu verknuepfen.");
+    lines.push(
+      topicsEnabled
+        ? "Nutze /config <chat-id> in einem Thema, um es zu verknuepfen."
+        : "Nutze /config <chat-id> im Privat-Chat, um eine Gruppe zu waehlen."
+    );
   }
 
   await ctx.reply(lines.join("\n"));
@@ -179,31 +158,56 @@ function getMessageThreadId(ctx: MyContext): number | undefined {
   return typeof threadId === "number" ? threadId : undefined;
 }
 
-function findThreadIdForChat(
-  configThreads: Record<string, number>,
-  chatId: number
-): number | undefined {
-  for (const [threadKey, mappedChatId] of Object.entries(configThreads)) {
-    if (mappedChatId === chatId) {
-      const threadId = Number(threadKey);
-      return Number.isFinite(threadId) ? threadId : undefined;
-    }
-  }
-  return undefined;
-}
-
 function hasPrivateTopicsEnabled(ctx: MyContext): boolean {
   const user = ctx.from as { has_topics_enabled?: boolean } | undefined;
   return Boolean(user?.has_topics_enabled);
 }
 
-async function createPrivateTopic(ctx: MyContext, title: string): Promise<number | undefined> {
-  if (!ctx.chat) return undefined;
-  try {
-    const topic = await ctx.api.createForumTopic(ctx.chat.id, title);
-    return topic.message_thread_id;
-  } catch (error) {
-    console.error("Failed to create private topic", error);
-    return undefined;
+function buildThreadsByChat(configThreads: Record<string, number>): Record<string, number[]> {
+  const threadsByChat: Record<string, number[]> = {};
+  Object.entries(configThreads).forEach(([threadKey, chatId]) => {
+    if (!threadsByChat[String(chatId)]) threadsByChat[String(chatId)] = [];
+    const threadNumber = Number(threadKey);
+    if (Number.isFinite(threadNumber)) threadsByChat[String(chatId)].push(threadNumber);
+  });
+  return threadsByChat;
+}
+
+function pruneManagedChats(
+  managedChats: Record<string, { title?: string; lastSeen: number }>,
+  allowedChatIds: Set<string>
+): Record<string, { title?: string; lastSeen: number }> {
+  return Object.fromEntries(
+    Object.entries(managedChats).filter(([chatId]) => allowedChatIds.has(chatId))
+  );
+}
+
+function pruneConfigThreads(
+  configThreads: Record<string, number>,
+  allowedChatIds: Set<string>
+): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(configThreads).filter(([, chatId]) => allowedChatIds.has(String(chatId)))
+  );
+}
+
+async function filterAdminChatIds(
+  ctx: MyContext,
+  chatIds: Set<string>
+): Promise<Set<string>> {
+  if (!ctx.from || chatIds.size === 0) return new Set();
+  const adminChatIds = new Set<string>();
+  for (const chatId of chatIds) {
+    const numericChatId = Number(chatId);
+    if (!Number.isFinite(numericChatId)) continue;
+    try {
+      const member = await ctx.api.getChatMember(numericChatId, ctx.from.id);
+      if (member.status === "administrator" || member.status === "creator") {
+        adminChatIds.add(chatId);
+      }
+    } catch (error) {
+      console.error("Failed to check admin status", error);
+    }
   }
+  return adminChatIds;
 }
