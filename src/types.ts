@@ -25,6 +25,8 @@ export type SessionData = {
   pendingCaptchas: Record<string, PendingCaptcha>;
   verifiedChats?: Record<string, number>;
   activeConfigChatId?: number;
+  managedChats?: Record<string, { title?: string; lastSeen: number }>;
+  configThreads?: Record<string, number>;
   testCaptcha?: {
     question: string;
     options: CaptchaOption[];

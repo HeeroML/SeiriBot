@@ -52,6 +52,9 @@ You can also configure from private chat:
 - Or use `/config <chat-id or @username>` in private chat.
 - Then run `/setwelcome`, `/setrules`, `/showwelcome`, `/showrules` in private chat.
 
+If you enabled private chat topics, run `/config <chat-id>` inside each topic to link it to a group.
+If private topics are enabled, `/start` will auto-create topics for known groups and post a link message inside each topic.
+
 Allow/deny list commands (admin only):
 - `/allow <user-id or @username>` add user to allowlist (auto-approve).
 - `/deny <user-id or @username>` add user to denylist (auto-decline + ban).

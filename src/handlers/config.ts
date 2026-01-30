@@ -19,10 +19,15 @@ export function registerConfigHandlers(
   configStorage: ConfigStorage
 ): void {
   bot.command("config", async (ctx) => {
+    const threadId = getMessageThreadId(ctx);
     const payload = extractCommandPayload(ctx);
+    const topicsEnabled = hasPrivateTopicsEnabled(ctx);
 
     if (ctx.chat?.type === "private") {
       let targetChatId: number | undefined = ctx.session.activeConfigChatId;
+      if (threadId) {
+        targetChatId = ctx.session.configThreads?.[String(threadId)];
+      }
       if (payload) {
         targetChatId = await resolveChatIdFromInput(ctx, payload);
         if (!targetChatId) {
@@ -32,18 +37,48 @@ export function registerConfigHandlers(
       }
 
       if (!targetChatId) {
-        await ctx.reply("Bitte nutze /config <chat-id> oder /config in der Gruppe.");
+        await ctx.reply(
+          threadId
+            ? "Dieses Thema ist noch nicht verbunden. Nutze /config <chat-id> in diesem Thema."
+            : "Bitte nutze /config <chat-id> oder /config in der Gruppe."
+        );
         return;
       }
 
       const adminInfo = await ensureAdminForChat(ctx, targetChatId);
       if (!adminInfo) return;
 
-      ctx.session.activeConfigChatId = targetChatId;
+      if (threadId) {
+        if (!ctx.session.configThreads) ctx.session.configThreads = {};
+        ctx.session.configThreads[String(threadId)] = targetChatId;
+      } else {
+        ctx.session.activeConfigChatId = targetChatId;
+      }
+      rememberManagedChat(ctx, targetChatId, adminInfo.chatTitle);
       const config = await getGroupConfig(configStorage, targetChatId);
-      await ctx.reply(
-        formatConfigMessage(config, adminInfo.chatTitle, targetChatId, true)
-      );
+      if (!threadId && topicsEnabled) {
+        const mappedThreadId = getThreadIdForChat(ctx, targetChatId);
+        if (mappedThreadId) {
+          await ctx.api.sendMessage(ctx.chat.id, "Dieses Thema ist bereits verknuepft.", {
+            message_thread_id: mappedThreadId
+          });
+        } else {
+          const createdThreadId = await createPrivateTopic(ctx, adminInfo.chatTitle, targetChatId);
+          if (createdThreadId) {
+            if (!ctx.session.configThreads) ctx.session.configThreads = {};
+            ctx.session.configThreads[String(createdThreadId)] = targetChatId;
+            await ctx.api.sendMessage(
+              ctx.chat.id,
+              formatConfigMessage(config, adminInfo.chatTitle, targetChatId, true, createdThreadId),
+              { message_thread_id: createdThreadId }
+            );
+            await ctx.reply("Thema erstellt und verbunden. Siehe das neue Thema.");
+            return;
+          }
+        }
+      }
+
+      await ctx.reply(formatConfigMessage(config, adminInfo.chatTitle, targetChatId, true, threadId));
       return;
     }
 
@@ -51,6 +86,7 @@ export function registerConfigHandlers(
       const adminInfo = await ensureAdminForChat(ctx, ctx.chat.id);
       if (!adminInfo) return;
       ctx.session.activeConfigChatId = ctx.chat.id;
+      rememberManagedChat(ctx, ctx.chat.id, ctx.chat.title ?? adminInfo.chatTitle);
       const config = await getGroupConfig(configStorage, ctx.chat.id);
       await ctx.reply(
         formatConfigMessage(config, ctx.chat.title ?? adminInfo.chatTitle, ctx.chat.id, false)
@@ -200,6 +236,7 @@ async function resolveConfigTarget(
   if (CONFIG_CHAT_TYPES.has(ctx.chat.type) && ctx.chat.type !== "private") {
     const adminInfo = await ensureAdminForChat(ctx, ctx.chat.id);
     if (!adminInfo) return null;
+    rememberManagedChat(ctx, ctx.chat.id, ctx.chat.title ?? adminInfo.chatTitle);
     return {
       chatId: ctx.chat.id,
       chatTitle: ctx.chat.title ?? adminInfo.chatTitle
@@ -207,13 +244,24 @@ async function resolveConfigTarget(
   }
 
   if (ctx.chat.type === "private") {
-    const targetChatId = ctx.session.activeConfigChatId;
-    if (!targetChatId) {
-      await ctx.reply("Bitte nutze /config <chat-id> oder /config in der Gruppe.");
-      return null;
+    const threadId = getMessageThreadId(ctx);
+    let targetChatId: number | undefined;
+    if (threadId) {
+      targetChatId = ctx.session.configThreads?.[String(threadId)];
+      if (!targetChatId) {
+        await ctx.reply("Dieses Thema ist noch nicht verbunden. Nutze /config <chat-id> hier.");
+        return null;
+      }
+    } else {
+      targetChatId = ctx.session.activeConfigChatId;
+      if (!targetChatId) {
+        await ctx.reply("Bitte nutze /config <chat-id> oder /config in der Gruppe.");
+        return null;
+      }
     }
     const adminInfo = await ensureAdminForChat(ctx, targetChatId);
     if (!adminInfo) return null;
+    rememberManagedChat(ctx, targetChatId, adminInfo.chatTitle);
     return { chatId: targetChatId, chatTitle: adminInfo.chatTitle };
   }
 
@@ -262,7 +310,7 @@ async function resolveTargetUserId(ctx: Context): Promise<number | undefined> {
 }
 
 async function ensureAdminForChat(
-  ctx: Context,
+  ctx: MyContext,
   chatId: number
 ): Promise<{ chatTitle?: string } | null> {
   if (!ctx.from) return null;
@@ -286,6 +334,7 @@ async function ensureAdminForChat(
   try {
     const member = await ctx.api.getChatMember(chatId, ctx.from.id);
     if (ADMIN_STATUSES.has(member.status)) {
+      rememberManagedChat(ctx, chatId, chatTitle);
       return { chatTitle };
     }
   } catch (error) {
@@ -295,11 +344,58 @@ async function ensureAdminForChat(
   return null;
 }
 
+function rememberManagedChat(ctx: MyContext, chatId: number, chatTitle?: string): void {
+  if (!ctx.session.managedChats) ctx.session.managedChats = {};
+  ctx.session.managedChats[String(chatId)] = {
+    title: chatTitle,
+    lastSeen: Date.now()
+  };
+}
+
+function getThreadIdForChat(ctx: MyContext, chatId: number): number | undefined {
+  const configThreads = ctx.session.configThreads ?? {};
+  for (const [threadKey, mappedChatId] of Object.entries(configThreads)) {
+    if (mappedChatId === chatId) {
+      const threadId = Number(threadKey);
+      return Number.isFinite(threadId) ? threadId : undefined;
+    }
+  }
+  return undefined;
+}
+
+function hasPrivateTopicsEnabled(ctx: Context): boolean {
+  const user = ctx.from as { has_topics_enabled?: boolean } | undefined;
+  return Boolean(user?.has_topics_enabled);
+}
+
+async function createPrivateTopic(
+  ctx: Context,
+  title: string | undefined,
+  chatId: number
+): Promise<number | undefined> {
+  if (!ctx.chat) return undefined;
+  const topicName = title ? `${title}` : `Chat ${chatId}`;
+  try {
+    const topic = await ctx.api.createForumTopic(ctx.chat.id, topicName);
+    return topic.message_thread_id;
+  } catch (error) {
+    console.error("Failed to create private topic", error);
+    return undefined;
+  }
+}
+
+function getMessageThreadId(ctx: Context): number | undefined {
+  const message = ctx.message as { message_thread_id?: number } | undefined;
+  const threadId = message?.message_thread_id;
+  return typeof threadId === "number" ? threadId : undefined;
+}
+
 function formatConfigMessage(
   config: Awaited<ReturnType<typeof getGroupConfig>>,
   chatTitle: string | undefined,
   chatId: number,
-  isPrivate: boolean
+  isPrivate: boolean,
+  threadId?: number
 ): string {
   const title = chatTitle ?? String(chatId);
   const lines = [
@@ -317,6 +413,9 @@ function formatConfigMessage(
     "Befehle: /setwelcome <text> | /setrules <text> | /allow | /deny"
   ];
   if (isPrivate) {
+    if (threadId) {
+      lines.push(`Thema: ${threadId}`);
+    }
     lines.push(`Aktive Gruppe: ${chatId}`);
   } else {
     lines.push(`Privat-Chat: /config ${chatId}`);
