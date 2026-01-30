@@ -9,6 +9,7 @@ import { registerJoinRequestHandler } from "./handlers/joinRequest";
 import { registerCallbackHandlers } from "./handlers/callbacks";
 import { registerChatMemberHandler } from "./handlers/chatMember";
 import { registerConfigHandlers } from "./handlers/config";
+import { registerTestCaptchaHandlers } from "./handlers/testCaptcha";
 
 const bot = new Bot<MyContext>(env.BOT_TOKEN);
 
@@ -32,6 +33,7 @@ registerJoinRequestHandler(bot, { env, pendingIndex });
 registerCallbackHandlers(bot, { pendingIndex, configStorage });
 registerChatMemberHandler(bot, sessionStorage);
 registerConfigHandlers(bot, configStorage);
+registerTestCaptchaHandlers(bot);
 
 bot.command("start", async (ctx) => {
   await ctx.reply(

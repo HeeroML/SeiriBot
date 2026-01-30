@@ -8,6 +8,7 @@ const CALLBACK_PREFIX = "captcha";
 const CALLBACK_RE = /^captcha\|(-?\d+)\|(\d+)\|([1-4])\|([a-f0-9]+)$/i;
 const BAN_RE = /^captcha-ban\|(-?\d+)\|(\d+)\|([a-f0-9]+)$/i;
 const WELCOME_RE = /^welcome\|(-?\d+)\|(\d+)\|(welcome|rules)$/i;
+const TEST_RE = /^test\|(\d+)\|([1-4])\|([a-f0-9]+)$/i;
 
 export type CaptchaCallbackData = {
   chatId: number;
@@ -27,6 +28,10 @@ export function buildCaptchaCallbackData(
 
 export function buildBanCallbackData(chatId: number, userId: number, nonce: string): string {
   return `captcha-ban|${chatId}|${userId}|${nonce}`;
+}
+
+export function buildTestCallbackData(userId: number, row: number, nonce: string): string {
+  return `test|${userId}|${row}|${nonce}`;
 }
 
 export function parseCaptchaCallback(data: string | undefined): CaptchaCallbackData | null {
@@ -49,6 +54,32 @@ export function registerCallbackHandlers(
     configStorage: ConfigStorage;
   }
 ): void {
+  bot.callbackQuery(TEST_RE, async (ctx) => {
+    const data = ctx.callbackQuery.data ?? "";
+    const match = data.match(TEST_RE);
+    if (!match) return;
+
+    const [, userIdStr, rowStr, nonce] = match;
+    const userId = Number(userIdStr);
+    const row = Number(rowStr);
+
+    if (ctx.from?.id !== userId) {
+      await ctx.answerCallbackQuery({ text: "Dieser Button ist nicht für dich." });
+      return;
+    }
+
+    const testCaptcha = ctx.session.testCaptcha;
+    if (!testCaptcha || testCaptcha.nonce !== nonce) {
+      await ctx.answerCallbackQuery({ text: "Abgelaufen oder bereits ersetzt." });
+      return;
+    }
+
+    const correct = row === testCaptcha.correctRow;
+    await ctx.answerCallbackQuery({
+      text: correct ? "✅ Richtig!" : "❌ Falsch."
+    });
+  });
+
   bot.callbackQuery(CALLBACK_RE, async (ctx) => {
     const data = parseCaptchaCallback(ctx.callbackQuery.data);
     if (!data) return;

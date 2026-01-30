@@ -18,6 +18,12 @@ export type PendingCaptcha = {
 export type SessionData = {
   pendingCaptchas: Record<string, PendingCaptcha>;
   verifiedChats?: Record<string, number>;
+  activeConfigChatId?: number;
+  testCaptcha?: {
+    correctRow: number;
+    nonce: string;
+    createdAt: number;
+  };
 };
 
 export type PendingIndexEntry = {

@@ -45,7 +45,15 @@ Run these commands **in the group** as an admin:
 - `/showwelcome` view current welcome message
 - `/showrules` view current rules message
 
+You can also configure from private chat:
+- Run `/config` in the group (as admin) to set the active group for your DM session.
+- Or use `/config <chat-id or @username>` in private chat.
+- Then run `/setwelcome`, `/setrules`, `/showwelcome`, `/showrules` in private chat.
+
 You can use `{chat}` or `{chatTitle}` placeholders in messages.
+
+## Test captcha
+Use `/test` (private or group) to receive a test captcha. It does not approve or decline any join request.
 
 ## Run
 ```bash
