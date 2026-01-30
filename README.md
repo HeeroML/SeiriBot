@@ -47,13 +47,7 @@ Run these commands **in the group** as an admin:
 - `/showwelcome` view current welcome message
 - `/showrules` view current rules message
 
-You can also configure from private chat:
-- Run `/config` in the group (as admin) to set the active group for your DM session.
-- Or use `/config <chat-id or @username>` in private chat.
-- Then run `/setwelcome`, `/setrules`, `/showwelcome`, `/showrules` in private chat.
-
-If you enabled private chat topics, run `/config <chat-id>` inside each topic to link it to a group.
-Topic linking is available to admins only. Use `/config <chat-id>` inside a private topic to link it.
+Config changes are handled directly in the group.
 
 Allow/deny list commands (admin only):
 - `/allow <user-id or @username>` add user to allowlist (auto-approve).
@@ -62,6 +56,7 @@ Allow/deny list commands (admin only):
 - `/undeny <user-id or @username>` remove from denylist.
 - `/listallow` show allowlist.
 - `/listdeny` show denylist.
+- `/clearverified` clear the verification cache (7-day auto-approve list).
 
 You can use `{chat}` or `{chatTitle}` placeholders in messages.
 
