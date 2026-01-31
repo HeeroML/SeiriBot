@@ -40,7 +40,7 @@ const warningStore = createWarningStore(metaStorage);
 registerJoinRequestHandler(bot, { env, pendingIndex, configStorage, federationStores });
 registerCallbackHandlers(bot, { pendingIndex, configStorage });
 registerChatMemberHandler(bot, sessionStorage);
-registerConfigHandlers(bot, configStorage);
+registerConfigHandlers(bot, configStorage, metaStorage);
 registerTestCaptchaHandlers(bot);
 registerModerationHandlers(bot, warningStore);
 registerFederationHandlers(bot, federationStores);
@@ -48,7 +48,7 @@ registerServiceMessageHandler(bot, configStorage);
 
 bot.command("start", async (ctx) => {
   await ctx.reply(
-    "Hi! Wenn du eine Beitrittsanfrage gestellt hast, löse bitte das Captcha, das ich dir per DM schicke. Konfiguration bitte in der Gruppe mit /config."
+    "Hi! Wenn du eine Beitrittsanfrage gestellt hast, löse bitte das Captcha, das ich dir per DM schicke. Konfiguration mit /config in der Gruppe oder im Privat-Chat."
   );
 });
 

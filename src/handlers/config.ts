@@ -1,4 +1,4 @@
-import type { Bot, Context } from "grammy";
+import { InlineKeyboard, type Bot, type Context } from "grammy";
 import type { MyContext } from "../types";
 import type { ConfigStorage } from "../config/store";
 import {
@@ -13,28 +13,242 @@ import {
 
 const ADMIN_STATUSES = new Set(["administrator", "creator"]);
 const CONFIG_CHAT_TYPES = new Set(["group", "supergroup", "channel"]);
+const MANAGED_GROUPS_KEY_PREFIX = "cfg-groups:";
+const MANAGED_GROUPS_LIMIT = 50;
+
+type KeyValueStorage = {
+  read(key: string): Promise<unknown>;
+  write(key: string, data: unknown): Promise<void>;
+};
+
+type ManagedGroup = {
+  chatId: number;
+  title?: string;
+  updatedAt: number;
+};
+
+type ManagedGroupsState = {
+  groups: ManagedGroup[];
+};
+
+function isManagedGroupsState(value: unknown): value is ManagedGroupsState {
+  if (!value || typeof value !== "object") return false;
+  return Array.isArray((value as ManagedGroupsState).groups);
+}
 
 export function registerConfigHandlers(
   bot: Bot<MyContext>,
-  configStorage: ConfigStorage
+  configStorage: ConfigStorage,
+  metaStorage: KeyValueStorage
 ): void {
   bot.command("config", async (ctx) => {
     if (ctx.chat?.type === "private") {
-      await ctx.reply("Konfiguration ist nur in der Gruppe verfuegbar. Nutze /config dort.");
+      await showManagedGroupsMenu(ctx, metaStorage, true);
       return;
     }
 
     if (ctx.chat && CONFIG_CHAT_TYPES.has(ctx.chat.type)) {
-      const adminInfo = await ensureAdminForChat(ctx, ctx.chat.id);
-      if (!adminInfo) return;
-      const config = await getGroupConfig(configStorage, ctx.chat.id);
-      await ctx.reply(
-        formatConfigMessage(config, ctx.chat.title ?? adminInfo.chatTitle, ctx.chat.id)
-      );
+      await showConfigMenu(ctx, configStorage, metaStorage, ctx.chat.id, false);
       return;
     }
 
     await ctx.reply("Bitte nutze diesen Befehl in einer Gruppe oder im Privat-Chat.");
+  });
+
+  bot.callbackQuery(/^cfg\|/, async (ctx) => {
+    const parsed = parseConfigCallback(ctx.callbackQuery.data ?? "");
+    if (!parsed) return;
+
+    await ctx.answerCallbackQuery();
+
+    if (parsed.action === "groups") {
+      await showManagedGroupsMenu(ctx, metaStorage, true);
+      return;
+    }
+
+    if (!parsed.chatId || !Number.isFinite(parsed.chatId)) return;
+
+    if (parsed.action === "select" || parsed.action === "menu") {
+      await showConfigMenu(ctx, configStorage, metaStorage, parsed.chatId, true);
+      return;
+    }
+
+    if (parsed.action === "cancel") {
+      ctx.session.configPending = undefined;
+      await ctx.reply("✅ Abgebrochen.");
+      await showConfigMenu(ctx, configStorage, metaStorage, parsed.chatId, true);
+      return;
+    }
+
+    if (!ctx.from) return;
+    const adminInfo = await ensureAdminForChat(ctx, parsed.chatId);
+    if (!adminInfo) return;
+    await recordManagedGroup(metaStorage, ctx.from.id, parsed.chatId, adminInfo.chatTitle);
+
+    if (parsed.action === "welcome") {
+      ctx.session.configPending = {
+        action: "setWelcome",
+        chatId: parsed.chatId,
+        chatTitle: adminInfo.chatTitle,
+        originChatId: ctx.chat?.id ?? parsed.chatId
+      };
+      await ctx.reply("Bitte sende die neue Willkommensnachricht.", {
+        reply_markup: buildCancelKeyboard(parsed.chatId)
+      });
+      return;
+    }
+
+    if (parsed.action === "rules") {
+      ctx.session.configPending = {
+        action: "setRules",
+        chatId: parsed.chatId,
+        chatTitle: adminInfo.chatTitle,
+        originChatId: ctx.chat?.id ?? parsed.chatId
+      };
+      await ctx.reply("Bitte sende die neuen Regeln.", {
+        reply_markup: buildCancelKeyboard(parsed.chatId)
+      });
+      return;
+    }
+
+    if (parsed.action === "toggle") {
+      const config = await getGroupConfig(configStorage, parsed.chatId);
+      await setGroupConfig(configStorage, parsed.chatId, {
+        deleteServiceMessages: !config.deleteServiceMessages
+      });
+      await showConfigMenu(ctx, configStorage, metaStorage, parsed.chatId, true);
+      return;
+    }
+
+    if (parsed.action === "clear") {
+      const config = await getGroupConfig(configStorage, parsed.chatId);
+      const previousCount = Object.keys(config.verifiedUsers).length;
+      await setGroupConfig(configStorage, parsed.chatId, { verifiedUsers: {} });
+      await ctx.reply(
+        previousCount > 0
+          ? `✅ Verifizierungs-Cache geleert (${previousCount}).`
+          : "✅ Verifizierungs-Cache ist bereits leer."
+      );
+      await showConfigMenu(ctx, configStorage, metaStorage, parsed.chatId, true);
+      return;
+    }
+
+    if (parsed.action === "allowlist" || parsed.action === "denylist") {
+      const config = await getGroupConfig(configStorage, parsed.chatId);
+      const listType = parsed.action === "allowlist" ? "allow" : "deny";
+      const ids = listType === "allow" ? config.allowlist : config.denylist;
+      const text = formatListMessage(listType, ids);
+      const keyboard = buildListMenuKeyboard(parsed.chatId, listType, ctx.chat?.type === "private");
+      await respondWithMenu(ctx, text, keyboard, true);
+      return;
+    }
+
+    if (parsed.action === "addallow" || parsed.action === "adddeny") {
+      ctx.session.configPending = {
+        action: parsed.action === "addallow" ? "addAllow" : "addDeny",
+        chatId: parsed.chatId,
+        chatTitle: adminInfo.chatTitle,
+        originChatId: ctx.chat?.id ?? parsed.chatId
+      };
+      await ctx.reply("Bitte sende die User-ID oder @username (oder antworte auf eine Nachricht).", {
+        reply_markup: buildCancelKeyboard(parsed.chatId)
+      });
+      return;
+    }
+
+    if (parsed.action === "remallow" || parsed.action === "remdeny") {
+      ctx.session.configPending = {
+        action: parsed.action === "remallow" ? "removeAllow" : "removeDeny",
+        chatId: parsed.chatId,
+        chatTitle: adminInfo.chatTitle,
+        originChatId: ctx.chat?.id ?? parsed.chatId
+      };
+      await ctx.reply("Bitte sende die User-ID oder @username (oder antworte auf eine Nachricht).", {
+        reply_markup: buildCancelKeyboard(parsed.chatId)
+      });
+      return;
+    }
+
+  });
+
+  bot.on("message:text", async (ctx) => {
+    const pending = ctx.session.configPending;
+    if (!pending) return;
+    if (!ctx.chat || ctx.chat.id !== pending.originChatId) return;
+
+    const text = ctx.message?.text?.trim();
+    if (!text) return;
+    if (text === "/cancel") {
+      ctx.session.configPending = undefined;
+      await ctx.reply("✅ Abgebrochen.");
+      await showConfigMenu(ctx, configStorage, metaStorage, pending.chatId, false);
+      return;
+    }
+
+    if (text.startsWith("/")) {
+      await ctx.reply("Bitte sende den Text oder /cancel.");
+      return;
+    }
+
+    if (pending.action === "setWelcome") {
+      const updated = await setGroupConfig(configStorage, pending.chatId, {
+        welcomeMessage: text
+      });
+      const chatTitle = pending.chatTitle ?? (await resolveChatTitle(ctx, pending.chatId));
+      await ctx.reply(
+        `✅ Willkommensnachricht aktualisiert:\n\n${renderTemplate(
+          updated.welcomeMessage,
+          chatTitle
+        )}`
+      );
+      ctx.session.configPending = undefined;
+      await showConfigMenu(ctx, configStorage, metaStorage, pending.chatId, false);
+      return;
+    }
+
+    if (pending.action === "setRules") {
+      const updated = await setGroupConfig(configStorage, pending.chatId, {
+        rulesMessage: text
+      });
+      const chatTitle = pending.chatTitle ?? (await resolveChatTitle(ctx, pending.chatId));
+      await ctx.reply(
+        `✅ Regeln aktualisiert:\n\n${renderTemplate(updated.rulesMessage, chatTitle)}`
+      );
+      ctx.session.configPending = undefined;
+      await showConfigMenu(ctx, configStorage, metaStorage, pending.chatId, false);
+      return;
+    }
+
+    if (
+      pending.action === "addAllow" ||
+      pending.action === "addDeny" ||
+      pending.action === "removeAllow" ||
+      pending.action === "removeDeny"
+    ) {
+      const userId = await resolveUserIdFromMessage(ctx);
+      if (!userId) {
+        await ctx.reply("Bitte sende die User-ID oder @username (oder antworte auf eine Nachricht).");
+        return;
+      }
+
+      let updated;
+      if (pending.action === "addAllow") {
+        updated = await addAllowlistUser(configStorage, pending.chatId, userId);
+        await ctx.reply(`✅ Allowlist aktualisiert (${updated.allowlist.length}).`);
+      } else if (pending.action === "addDeny") {
+        updated = await addDenylistUser(configStorage, pending.chatId, userId);
+        await ctx.reply(`✅ Denylist aktualisiert (${updated.denylist.length}).`);
+      } else if (pending.action === "removeAllow") {
+        updated = await removeAllowlistUser(configStorage, pending.chatId, userId);
+        await ctx.reply(`✅ Allowlist aktualisiert (${updated.allowlist.length}).`);
+      } else {
+        updated = await removeDenylistUser(configStorage, pending.chatId, userId);
+        await ctx.reply(`✅ Denylist aktualisiert (${updated.denylist.length}).`);
+      }
+
+      ctx.session.configPending = undefined;
+      await showConfigMenu(ctx, configStorage, metaStorage, pending.chatId, false);
+    }
   });
 
   bot.command("setwelcome", async (ctx) => {
@@ -189,6 +403,227 @@ export function registerConfigHandlers(
   });
 }
 
+type ConfigCallback = {
+  action:
+    | "groups"
+    | "select"
+    | "menu"
+    | "welcome"
+    | "rules"
+    | "toggle"
+    | "clear"
+    | "allowlist"
+    | "denylist"
+    | "addallow"
+    | "adddeny"
+    | "remallow"
+    | "remdeny"
+    | "cancel";
+  chatId?: number;
+};
+
+const CONFIG_CALLBACK_ACTIONS: ReadonlySet<ConfigCallback["action"]> = new Set([
+  "groups",
+  "select",
+  "menu",
+  "welcome",
+  "rules",
+  "toggle",
+  "clear",
+  "allowlist",
+  "denylist",
+  "addallow",
+  "adddeny",
+  "remallow",
+  "remdeny",
+  "cancel"
+]);
+
+function parseConfigCallback(data: string): ConfigCallback | null {
+  if (!data.startsWith("cfg|")) return null;
+  const parts = data.split("|");
+  const action = parts[1] as ConfigCallback["action"] | undefined;
+  if (!action || !CONFIG_CALLBACK_ACTIONS.has(action)) return null;
+
+  if (action === "groups") {
+    return { action };
+  }
+
+  const chatId = Number(parts[2]);
+  if (!Number.isFinite(chatId)) return null;
+  return { action, chatId };
+}
+
+function buildConfigCallbackData(action: ConfigCallback["action"], chatId?: number): string {
+  return chatId === undefined ? `cfg|${action}` : `cfg|${action}|${chatId}`;
+}
+
+function buildConfigMenuKeyboard(
+  chatId: number,
+  config: Awaited<ReturnType<typeof getGroupConfig>>,
+  showBackToGroups: boolean
+): InlineKeyboard {
+  const keyboard = new InlineKeyboard()
+    .text("Willkommensnachricht", buildConfigCallbackData("welcome", chatId))
+    .text("Regeln", buildConfigCallbackData("rules", chatId))
+    .row()
+    .text(
+      `Service-Nachrichten: ${config.deleteServiceMessages ? "on" : "off"}`,
+      buildConfigCallbackData("toggle", chatId)
+    )
+    .row()
+    .text(`Allowlist (${config.allowlist.length})`, buildConfigCallbackData("allowlist", chatId))
+    .text(`Denylist (${config.denylist.length})`, buildConfigCallbackData("denylist", chatId))
+    .row()
+    .text("Verifizierungs-Cache leeren", buildConfigCallbackData("clear", chatId));
+
+  if (showBackToGroups) {
+    keyboard.row().text("⬅️ Gruppen", buildConfigCallbackData("groups"));
+  }
+
+  return keyboard;
+}
+
+function buildListMenuKeyboard(
+  chatId: number,
+  listType: "allow" | "deny",
+  showBackToGroups: boolean
+): InlineKeyboard {
+  const addAction = listType === "allow" ? "addallow" : "adddeny";
+  const removeAction = listType === "allow" ? "remallow" : "remdeny";
+  const keyboard = new InlineKeyboard()
+    .text("Hinzufügen", buildConfigCallbackData(addAction, chatId))
+    .text("Entfernen", buildConfigCallbackData(removeAction, chatId))
+    .row()
+    .text("⬅️ Zurück", buildConfigCallbackData("menu", chatId));
+
+  if (showBackToGroups) {
+    keyboard.row().text("⬅️ Gruppen", buildConfigCallbackData("groups"));
+  }
+
+  return keyboard;
+}
+
+function buildCancelKeyboard(chatId: number): InlineKeyboard {
+  return new InlineKeyboard().text("Abbrechen", buildConfigCallbackData("cancel", chatId));
+}
+
+async function respondWithMenu(
+  ctx: MyContext,
+  text: string,
+  keyboard: InlineKeyboard,
+  preferEdit: boolean
+): Promise<void> {
+  if (preferEdit && ctx.callbackQuery?.message?.message_id) {
+    try {
+      await ctx.editMessageText(text, { reply_markup: keyboard });
+      return;
+    } catch (error) {
+      // Ignore edit failures and send a new message.
+    }
+  }
+  await ctx.reply(text, { reply_markup: keyboard });
+}
+
+async function showManagedGroupsMenu(
+  ctx: MyContext,
+  metaStorage: KeyValueStorage,
+  preferEdit: boolean
+): Promise<void> {
+  if (!ctx.from) return;
+  const groups = await loadManagedGroups(metaStorage, ctx.from.id);
+  if (!groups.length) {
+    const text =
+      "Keine verwalteten Gruppen gefunden. Öffne /config in einer Gruppe, in der du Admin bist.";
+    if (preferEdit && ctx.callbackQuery?.message?.message_id) {
+      try {
+        await ctx.editMessageText(text);
+        return;
+      } catch (error) {
+        // Ignore edit failures and send a new message.
+      }
+    }
+    await ctx.reply(text);
+    return;
+  }
+
+  const keyboard = new InlineKeyboard();
+  for (const group of groups) {
+    keyboard.text(formatGroupLabel(group), buildConfigCallbackData("select", group.chatId)).row();
+  }
+
+  await respondWithMenu(ctx, "Wähle eine Gruppe, um die Konfiguration zu öffnen.", keyboard, preferEdit);
+}
+
+async function showConfigMenu(
+  ctx: MyContext,
+  configStorage: ConfigStorage,
+  metaStorage: KeyValueStorage,
+  chatId: number,
+  preferEdit: boolean
+): Promise<void> {
+  const adminInfo = await ensureAdminForChat(ctx, chatId);
+  if (!adminInfo) return;
+  if (ctx.from) {
+    await recordManagedGroup(metaStorage, ctx.from.id, chatId, adminInfo.chatTitle);
+  }
+
+  const config = await getGroupConfig(configStorage, chatId);
+  const chatTitle = adminInfo.chatTitle ?? (ctx.chat?.type !== "private" ? ctx.chat?.title : undefined);
+  const text = formatConfigMessage(config, chatTitle, chatId);
+  const keyboard = buildConfigMenuKeyboard(chatId, config, ctx.chat?.type === "private");
+  await respondWithMenu(ctx, text, keyboard, preferEdit);
+}
+
+function formatListMessage(listType: "allow" | "deny", ids: number[]): string {
+  const title = listType === "allow" ? "Allowlist" : "Denylist";
+  if (!ids.length) return `${title} ist leer.`;
+  return `${title} (${ids.length}): ${formatUserIdList(ids)}`;
+}
+
+function formatUserIdList(ids: number[]): string {
+  const joined = ids.map((id) => id.toString()).join(", ");
+  if (joined.length <= 3500) return joined;
+  const slice = ids.slice(0, 50).map((id) => id.toString()).join(", ");
+  return `${slice} ... (+${ids.length - 50})`;
+}
+
+function formatGroupLabel(group: ManagedGroup): string {
+  if (!group.title) return String(group.chatId);
+  const trimmed = group.title.trim();
+  if (trimmed.length <= 48) return trimmed;
+  return `${trimmed.slice(0, 45)}...`;
+}
+
+function managedGroupsKey(userId: number): string {
+  return `${MANAGED_GROUPS_KEY_PREFIX}${userId}`;
+}
+
+async function loadManagedGroups(
+  storage: KeyValueStorage,
+  userId: number
+): Promise<ManagedGroup[]> {
+  const data = await storage.read(managedGroupsKey(userId));
+  if (!isManagedGroupsState(data)) return [];
+  return data.groups
+    .filter((group): group is ManagedGroup => Boolean(group) && Number.isFinite(group.chatId))
+    .sort((left, right) => right.updatedAt - left.updatedAt);
+}
+
+async function recordManagedGroup(
+  storage: KeyValueStorage,
+  userId: number,
+  chatId: number,
+  title?: string
+): Promise<void> {
+  const groups = await loadManagedGroups(storage, userId);
+  const now = Date.now();
+  const updated: ManagedGroup = { chatId, title, updatedAt: now };
+  const next = [updated, ...groups.filter((group) => group.chatId !== chatId)];
+  if (next.length > MANAGED_GROUPS_LIMIT) next.length = MANAGED_GROUPS_LIMIT;
+  await storage.write(managedGroupsKey(userId), { groups: next });
+}
+
 function extractCommandPayload(ctx: Context): string {
   const text = ctx.message?.text ?? "";
   const entity = ctx.message?.entities?.find(
@@ -237,6 +672,39 @@ async function resolveTargetUserId(ctx: Context): Promise<number | undefined> {
   const parsed = Number(token);
   if (!Number.isFinite(parsed)) return undefined;
   return parsed;
+}
+
+async function resolveUserIdFromMessage(ctx: Context): Promise<number | undefined> {
+  const text = ctx.message?.text ?? "";
+  if (!text.trim()) {
+    const replyUser = ctx.message?.reply_to_message?.from?.id;
+    return replyUser ?? undefined;
+  }
+
+  const token = text.trim().split(/\s+/)[0];
+  if (!token) return undefined;
+  if (token.startsWith("@")) {
+    try {
+      const chat = await ctx.api.getChat(token);
+      return chat.id;
+    } catch (error) {
+      console.error("Failed to resolve user", error);
+      return undefined;
+    }
+  }
+  const parsed = Number(token);
+  if (!Number.isFinite(parsed)) return undefined;
+  return parsed;
+}
+
+async function resolveChatTitle(ctx: Context, chatId: number): Promise<string | undefined> {
+  try {
+    const chat = await ctx.api.getChat(chatId);
+    if ("title" in chat && chat.title) return chat.title;
+  } catch (error) {
+    console.error("Failed to fetch chat title", error);
+  }
+  return undefined;
 }
 
 async function ensureAdminForChat(
@@ -293,7 +761,7 @@ function formatConfigMessage(
       Object.keys(config.verifiedUsers).length
     }`,
     `Service-Nachrichten löschen: ${config.deleteServiceMessages ? "on" : "off"}`,
-    "Befehle: /setwelcome <text> | /setrules <text> | /allow | /deny | /clearverified | /delserv on|off"
+    "Nutze die Buttons unten, um Einstellungen zu ändern."
   ];
   return lines.join("\n");
 }

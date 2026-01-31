@@ -23,6 +23,7 @@ export type PendingCaptcha = {
 export type SessionData = {
   pendingCaptchas: Record<string, PendingCaptcha>;
   verifiedChats?: Record<string, number>;
+  configPending?: ConfigPendingAction;
   testCaptcha?: {
     question: string;
     options: CaptchaOption[];
@@ -31,6 +32,13 @@ export type SessionData = {
     createdAt: number;
     textMode?: boolean;
   };
+};
+
+export type ConfigPendingAction = {
+  action: "setWelcome" | "setRules" | "addAllow" | "addDeny" | "removeAllow" | "removeDeny";
+  chatId: number;
+  chatTitle?: string;
+  originChatId: number;
 };
 
 export type PendingIndexEntry = {

@@ -364,7 +364,8 @@ export function registerModerationHandlers(
       "/fedinfo",
       "",
       "Konfiguration:",
-      "/config /setwelcome /setrules",
+      "/config (Menü)",
+      "/setwelcome /setrules",
       "/allow /deny /unallow /undeny /listallow /listdeny",
       "/delserv on|off"
     ];
