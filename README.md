@@ -139,4 +139,4 @@ This repo deploys a Next.js WebApp and a Telegram webhook in one project.
 2. Telegram webhook URL (set automatically in production):
    - `https://your-vercel-app.vercel.app/api/telegram`
 3. Cron:
-   - `/api/sweep` runs every 15 minutes via `vercel.json`.
+   - `/api/sweep` runs every 15 minutes via `vercel.json` (needs per-minute cron support).
