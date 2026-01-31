@@ -1,11 +1,11 @@
 import type { Bot, StorageAdapter } from "grammy";
-import type { SessionData } from "./types";
+import type { MyContext, SessionData } from "./types";
 import type { PendingIndexStore } from "./storage/types";
 
 let sweepRunning = false;
 
 export async function sweepExpiredCaptchas(
-  bot: Bot,
+  bot: Bot<MyContext>,
   sessionStorage: StorageAdapter<SessionData>,
   pendingIndexStore: PendingIndexStore
 ): Promise<number> {
