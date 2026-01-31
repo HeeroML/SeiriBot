@@ -5,6 +5,7 @@ export type GroupConfig = {
   allowlist: number[];
   denylist: number[];
   verifiedUsers: Record<string, number>;
+  deleteServiceMessages: boolean;
 };
 
 export type ConfigStorage = {
@@ -19,6 +20,7 @@ export const DEFAULT_RULES_MESSAGE =
 const DEFAULT_ALLOWLIST: number[] = [];
 const DEFAULT_DENYLIST: number[] = [];
 const DEFAULT_VERIFIED_USERS: Record<string, number> = {};
+const DEFAULT_DELETE_SERVICE_MESSAGES = false;
 
 export function renderTemplate(template: string, chatTitle?: string): string {
   const safeTitle = chatTitle ?? "the group";
@@ -42,7 +44,9 @@ export async function getGroupConfig(
       rulesMessage: stored.rulesMessage ?? DEFAULT_RULES_MESSAGE,
       allowlist: stored.allowlist ?? DEFAULT_ALLOWLIST,
       denylist: stored.denylist ?? DEFAULT_DENYLIST,
-      verifiedUsers: stored.verifiedUsers ?? DEFAULT_VERIFIED_USERS
+      verifiedUsers: stored.verifiedUsers ?? DEFAULT_VERIFIED_USERS,
+      deleteServiceMessages:
+        stored.deleteServiceMessages ?? DEFAULT_DELETE_SERVICE_MESSAGES
     };
   }
   return {
@@ -51,7 +55,8 @@ export async function getGroupConfig(
     rulesMessage: DEFAULT_RULES_MESSAGE,
     allowlist: DEFAULT_ALLOWLIST,
     denylist: DEFAULT_DENYLIST,
-    verifiedUsers: DEFAULT_VERIFIED_USERS
+    verifiedUsers: DEFAULT_VERIFIED_USERS,
+    deleteServiceMessages: DEFAULT_DELETE_SERVICE_MESSAGES
   };
 }
 

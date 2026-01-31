@@ -99,6 +99,23 @@ export function registerConfigHandlers(
     );
   });
 
+  bot.command("delserv", async (ctx) => {
+    const target = await resolveConfigTarget(ctx);
+    if (!target) return;
+    const payload = extractCommandPayload(ctx).toLowerCase();
+    if (!payload || (payload !== "on" && payload !== "off")) {
+      await ctx.reply("Nutzung: /delserv on|off");
+      return;
+    }
+    const deleteServiceMessages = payload === "on";
+    await setGroupConfig(configStorage, target.chatId, { deleteServiceMessages });
+    await ctx.reply(
+      deleteServiceMessages
+        ? "✅ Service-Nachrichten werden gelöscht."
+        : "✅ Service-Nachrichten bleiben sichtbar."
+    );
+  });
+
   bot.command("allow", async (ctx) => {
     const target = await resolveConfigTarget(ctx);
     if (!target) return;
@@ -275,7 +292,8 @@ function formatConfigMessage(
     `Allowlist: ${config.allowlist.length} | Denylist: ${config.denylist.length} | Cache: ${
       Object.keys(config.verifiedUsers).length
     }`,
-    "Befehle: /setwelcome <text> | /setrules <text> | /allow | /deny | /clearverified"
+    `Service-Nachrichten löschen: ${config.deleteServiceMessages ? "on" : "off"}`,
+    "Befehle: /setwelcome <text> | /setrules <text> | /allow | /deny | /clearverified | /delserv on|off"
   ];
   return lines.join("\n");
 }

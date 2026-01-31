@@ -9,6 +9,9 @@ Seiri Bot is a Telegram bot that handles **chat join requests** by DMing users a
 - Approves or declines join requests via the Telegram Bot API.
 - Session-based state using grammY's session plugin.
 - Configurable welcome + rules messages with a toggle button.
+- Admin/moderation commands (ban, mute, warn, purge, pin, lock).
+- Federation support (fban/fmute across linked groups).
+- Optional deletion of Telegram service messages.
 - Automatic expiry + periodic sweep to decline stale requests.
 
 ## Requirements
@@ -46,6 +49,7 @@ Run these commands **in the group** as an admin:
 - `/setrules <message>` set the rules message
 - `/showwelcome` view current welcome message
 - `/showrules` view current rules message
+- `/delserv on|off` toggle deletion of service messages
 
 Config changes are handled directly in the group.
 
@@ -59,6 +63,30 @@ Allow/deny list commands (admin only):
 - `/clearverified` clear the verification cache (7-day auto-approve list).
 
 You can use `{chat}` or `{chatTitle}` placeholders in messages.
+
+## Moderation commands (admin only)
+These commands work in groups/supergroups. Use reply, `@username`, or a numeric user id:
+- `/ban`, `/unban`, `/kick`
+- `/mute [10m|2h|1d]`, `/unmute`
+- `/warn [reason]`, `/unwarn`, `/warnings`
+- `/purge <n>` delete the last `n` messages (safe limit)
+- `/pin`, `/unpin` (reply to target message)
+- `/lock`, `/unlock` toggle member send permissions
+
+## Federation setup
+Federations are controlled from a **federal group** (a group/supergroup where the bot is present).
+
+Federal group commands:
+- `/fedadd <chat_id>` link a group to the federation (creates federation if needed)
+- `/fedremove <chat_id>` unlink a group
+- `/fedlist` list linked groups
+- `/fban`, `/funban`, `/fmute`, `/funmute` apply actions across linked groups
+
+Linked group command:
+- `/fedset <federal_chat_id>` link this group to an existing federation
+
+Info:
+- `/fedinfo` show federation status for the current group
 
 ## Test captcha
 Use `/test` (private or group) to receive a test captcha. It does not approve or decline any join request.

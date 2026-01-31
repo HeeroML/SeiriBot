@@ -11,6 +11,8 @@ import {
 } from "../config/store";
 import type { MyContext, PendingCaptcha, PendingIndexEntry } from "../types";
 import { makePendingKey } from "../types";
+import type { FederationStores } from "../federation/store";
+import { getFederationForChat } from "../federation/store";
 import {
   buildBanCallbackData,
   buildCaptchaCallbackData,
@@ -20,7 +22,12 @@ import {
 
 export function registerJoinRequestHandler(
   bot: Bot<MyContext>,
-  deps: { env: Env; pendingIndex: Map<string, PendingIndexEntry>; configStorage: ConfigStorage }
+  deps: {
+    env: Env;
+    pendingIndex: Map<string, PendingIndexEntry>;
+    configStorage: ConfigStorage;
+    federationStores: FederationStores;
+  }
 ): void {
   bot.on("chat_join_request", async (ctx) => {
     const request = ctx.update.chat_join_request;
@@ -35,6 +42,21 @@ export function registerJoinRequestHandler(
     const maxAttempts = Math.min(deps.env.MAX_ATTEMPTS, 2);
 
     const config = await getGroupConfig(deps.configStorage, chatId);
+    const federation = await getFederationForChat(deps.federationStores, chatId);
+    if (federation && federation.bannedUsers.includes(userId)) {
+      try {
+        await ctx.api.declineChatJoinRequest(chatId, userId);
+      } catch (error) {
+        console.error("Failed to decline federated ban join request", error);
+      }
+      try {
+        await ctx.api.banChatMember(chatId, userId);
+      } catch (error) {
+        console.error("Failed to ban federated user", error);
+      }
+      return;
+    }
+
     const isDenied = config.denylist.includes(userId);
     if (isDenied) {
       try {

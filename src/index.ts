@@ -10,6 +10,11 @@ import { registerCallbackHandlers } from "./handlers/callbacks";
 import { registerChatMemberHandler } from "./handlers/chatMember";
 import { registerConfigHandlers } from "./handlers/config";
 import { registerTestCaptchaHandlers } from "./handlers/testCaptcha";
+import { registerModerationHandlers } from "./handlers/moderation";
+import { registerFederationHandlers } from "./handlers/federation";
+import { registerServiceMessageHandler } from "./handlers/serviceMessages";
+import { createFederationStores } from "./federation/store";
+import { createWarningStore } from "./moderation/warnings";
 
 const bot = new Bot<MyContext>(env.BOT_TOKEN);
 
@@ -28,12 +33,18 @@ bot.use(chatMembers(chatMemberStorage));
 
 const pendingIndex = new Map<string, PendingIndexEntry>();
 const configStorage = freeStorage<GroupConfig>(env.BOT_TOKEN);
+const metaStorage = freeStorage<unknown>(env.BOT_TOKEN);
+const federationStores = createFederationStores(metaStorage);
+const warningStore = createWarningStore(metaStorage);
 
-registerJoinRequestHandler(bot, { env, pendingIndex, configStorage });
+registerJoinRequestHandler(bot, { env, pendingIndex, configStorage, federationStores });
 registerCallbackHandlers(bot, { pendingIndex, configStorage });
 registerChatMemberHandler(bot, sessionStorage);
 registerConfigHandlers(bot, configStorage);
 registerTestCaptchaHandlers(bot);
+registerModerationHandlers(bot, warningStore);
+registerFederationHandlers(bot, federationStores);
+registerServiceMessageHandler(bot, configStorage);
 
 bot.command("start", async (ctx) => {
   await ctx.reply(
