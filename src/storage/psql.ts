@@ -81,6 +81,14 @@ function rowToConfigLink(row: Record<string, unknown>): ConfigLinkRecord {
   };
 }
 
+function normalizeRows<T>(result: unknown): T[] {
+  if (Array.isArray(result)) return result as T[];
+  if (result && typeof result === "object" && Array.isArray((result as { rows?: unknown }).rows)) {
+    return (result as { rows: T[] }).rows;
+  }
+  return [];
+}
+
 export type StorageBundle = {
   sessionStorage: StorageAdapter<SessionData>;
   chatMemberStorage: StorageAdapter<ChatMember>;
@@ -162,8 +170,9 @@ export function createConfigLinkStore(): ConfigLinkStore {
         WHERE nonce = ${nonce}
         LIMIT 1
       `;
-      if (!result.length) return undefined;
-      return rowToConfigLink(result[0] as Record<string, unknown>);
+      const rows = normalizeRows<Record<string, unknown>>(result);
+      if (!rows.length) return undefined;
+      return rowToConfigLink(rows[0]);
     },
     async delete(nonce: string): Promise<void> {
       const db = await dbPromise;
