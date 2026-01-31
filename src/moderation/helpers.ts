@@ -178,6 +178,34 @@ export function parseDurationMs(token: string | undefined): DurationParseResult 
   return { ms };
 }
 
+export type OptionalDurationParseResult = {
+  ms?: number;
+  remainingTokens: string[];
+  error?: string;
+};
+
+export function parseOptionalDurationMs(tokens: string[]): OptionalDurationParseResult {
+  if (tokens.length === 0) {
+    return { ms: undefined, remainingTokens: [] };
+  }
+
+  const token = tokens[0];
+  if (!/^\d/.test(token)) {
+    return { ms: undefined, remainingTokens: tokens };
+  }
+
+  const parsed = parseDurationMs(token);
+  if (parsed.error) {
+    return { error: parsed.error, remainingTokens: tokens };
+  }
+
+  if (parsed.ms) {
+    return { ms: parsed.ms, remainingTokens: tokens.slice(1) };
+  }
+
+  return { ms: undefined, remainingTokens: tokens };
+}
+
 export function toUntilDate(durationMs: number): number {
   return Math.floor((Date.now() + durationMs) / 1000);
 }

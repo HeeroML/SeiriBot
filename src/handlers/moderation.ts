@@ -12,7 +12,7 @@ import {
   extractCommandArgs,
   extractCommandPayload,
   formatUserLabel,
-  parseDurationMs,
+  parseOptionalDurationMs,
   resolveTargetUser,
   toUntilDate
 } from "../moderation/helpers";
@@ -117,14 +117,13 @@ export function registerModerationHandlers(
       return;
     }
 
-    const durationResult = parseDurationMs(tokens[0]);
+    const durationResult = parseOptionalDurationMs(tokens);
     if (durationResult.error) {
       await ctx.reply(durationResult.error);
       return;
     }
     const durationMs = durationResult.ms;
-    if (durationMs) tokens.shift();
-    const reason = tokens.join(" ").trim();
+    const reason = durationResult.remainingTokens.join(" ").trim();
     const untilDate = durationMs ? toUntilDate(durationMs) : undefined;
 
     try {

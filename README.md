@@ -9,8 +9,8 @@ Seiri Bot is a Telegram bot that handles **chat join requests** by DMing users a
 - Approves or declines join requests via the Telegram Bot API.
 - Session-based state using grammY's session plugin.
 - Configurable welcome + rules messages with a toggle button.
-- Admin/moderation commands (ban, mute, warn, purge, pin, lock).
-- Federation support (fban/fmute across linked groups).
+- Admin/moderation commands (ban/unban/kick, mute/unmute, warn/unwarn/warnings, purge, pin/unpin, lock/unlock, help).
+- Federation support (fedset/fedadd/fedremove/fedlist/fedinfo + fban/fmute across linked groups).
 - Optional deletion of Telegram service messages.
 - Automatic expiry + periodic sweep to decline stale requests.
 
@@ -67,11 +67,12 @@ You can use `{chat}` or `{chatTitle}` placeholders in messages.
 ## Moderation commands (admin only)
 These commands work in groups/supergroups. Use reply, `@username`, or a numeric user id:
 - `/ban`, `/unban`, `/kick`
-- `/mute [10m|2h|1d]`, `/unmute`
+- `/mute [10m|2h|1d] [reason]`, `/unmute`
 - `/warn [reason]`, `/unwarn`, `/warnings`
 - `/purge <n>` delete the last `n` messages (safe limit)
 - `/pin`, `/unpin` (reply to target message)
 - `/lock`, `/unlock` toggle member send permissions
+- `/help` show command overview
 
 ## Federation setup
 Federations are controlled from a **federal group** (a group/supergroup where the bot is present).
@@ -80,7 +81,7 @@ Federal group commands:
 - `/fedadd <chat_id>` link a group to the federation (creates federation if needed)
 - `/fedremove <chat_id>` unlink a group
 - `/fedlist` list linked groups
-- `/fban`, `/funban`, `/fmute`, `/funmute` apply actions across linked groups
+- `/fban`, `/funban`, `/fmute`, `/funmute` apply actions across linked groups (summary is posted in the federal group)
 
 Linked group command:
 - `/fedset <federal_chat_id>` link this group to an existing federation
