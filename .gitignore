@@ -26,3 +26,6 @@ package-lock.json
 .env
 
 *.js
+
+# Agent instructions (local)
+AGENTS.md
