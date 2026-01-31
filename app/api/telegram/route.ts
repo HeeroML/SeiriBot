@@ -24,7 +24,7 @@ async function ensureWebhook(): Promise<void> {
     return;
   }
   const bot = await getBot();
-  const target = `${baseUrl.replace(/\\/$/, "")}/api/telegram`;
+  const target = `${baseUrl.replace(/\/$/, "")}/api/telegram`;
   try {
     const info = await bot.api.getWebhookInfo();
     if (info.url !== target) {
