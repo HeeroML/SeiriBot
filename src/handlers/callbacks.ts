@@ -1,9 +1,10 @@
 import { InlineKeyboard, type Bot } from "grammy";
-import type { MyContext, PendingCaptcha, PendingIndexEntry } from "../types";
+import type { MyContext, PendingCaptcha } from "../types";
 import { makePendingKey } from "../types";
 import { buildNumericKeyboard, formatOptionsText } from "../captcha/render";
 import type { ConfigStorage } from "../config/store";
 import { getGroupConfig, recordVerifiedUser, renderTemplate } from "../config/store";
+import type { PendingIndexStore } from "../storage/types";
 
 const CALLBACK_PREFIX = "captcha";
 const CALLBACK_RE = /^captcha\|(-?\d+)\|(\d+)\|([1-4])\|([a-f0-9]+)$/i;
@@ -91,7 +92,7 @@ function applyCooldown(pending: PendingCaptcha, now: number): number {
 export function registerCallbackHandlers(
   bot: Bot<MyContext>,
   deps: {
-    pendingIndex: Map<string, PendingIndexEntry>;
+    pendingIndex: PendingIndexStore;
     configStorage: ConfigStorage;
   }
 ): void {
@@ -247,7 +248,7 @@ export function registerCallbackHandlers(
       if (approved) {
         await recordVerifiedUser(deps.configStorage, chatId, userId, Date.now());
       }
-      deps.pendingIndex.delete(key);
+      await safeDeletePending(deps.pendingIndex, key);
       delete ctx.session.pendingCaptchas[key];
       await deleteCaptchaMessage(ctx, pending);
       await showWelcomeMessage(ctx, chatId, userId, deps.configStorage, "welcome", false);
@@ -266,7 +267,7 @@ export function registerCallbackHandlers(
       } catch (error) {
         console.error("Failed to decline join request", error);
       }
-      deps.pendingIndex.delete(key);
+      await safeDeletePending(deps.pendingIndex, key);
       delete ctx.session.pendingCaptchas[key];
       await tryEditCaptchaMessage(ctx, "❌ Zu viele Versuche. Deine Anfrage wurde abgelehnt.");
       return;
@@ -402,7 +403,7 @@ export function registerCallbackHandlers(
       console.error("Failed to ban user", error);
     }
 
-    deps.pendingIndex.delete(key);
+    await safeDeletePending(deps.pendingIndex, key);
     delete ctx.session.pendingCaptchas[key];
     await tryEditCaptchaMessage(ctx, "Anfrage gespeichert.");
   });
@@ -426,7 +427,7 @@ export function registerCallbackHandlers(
       )[0];
 
       if (pending.expiresAt <= now) {
-        deps.pendingIndex.delete(key);
+        await safeDeletePending(deps.pendingIndex, key);
         delete ctx.session.pendingCaptchas[key];
         await ctx.reply("Abgelaufen oder bereits verarbeitet.");
         return;
@@ -452,7 +453,7 @@ export function registerCallbackHandlers(
         if (approved) {
           await recordVerifiedUser(deps.configStorage, pending.chatId, pending.userId, Date.now());
         }
-        deps.pendingIndex.delete(key);
+        await safeDeletePending(deps.pendingIndex, key);
         delete ctx.session.pendingCaptchas[key];
         await deleteCaptchaMessage(ctx, pending);
         await showWelcomeMessage(ctx, pending.chatId, pending.userId, deps.configStorage, "welcome", false);
@@ -471,7 +472,7 @@ export function registerCallbackHandlers(
         } catch (error) {
           console.error("Failed to decline join request", error);
         }
-        deps.pendingIndex.delete(key);
+        await safeDeletePending(deps.pendingIndex, key);
         delete ctx.session.pendingCaptchas[key];
         await ctx.reply("Deine Anfrage wurde abgelehnt.");
         return;
@@ -526,6 +527,14 @@ async function tryEditCaptchaMessage(ctx: MyContext, text: string): Promise<void
     await ctx.editMessageText(text);
   } catch (error) {
     // Ignore edit failures (message might be gone or already edited)
+  }
+}
+
+async function safeDeletePending(pendingIndex: PendingIndexStore, key: string): Promise<void> {
+  try {
+    await pendingIndex.delete(key);
+  } catch (error) {
+    console.error("Failed to delete pending index", error);
   }
 }
 

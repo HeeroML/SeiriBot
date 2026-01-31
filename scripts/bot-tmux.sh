@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SESSION="${1:-seiri-bot}"
 LOG_DIR="${LOG_DIR:-"$ROOT_DIR/logs"}"
 LOG_FILE="${LOG_FILE:-"$LOG_DIR/${SESSION}.log"}"
-BOT_CMD="${BOT_CMD:-"npm run build && npm start"}"
+BOT_CMD="${BOT_CMD:-"npm run build:bot && npm start"}"
 
 if ! command -v tmux >/dev/null 2>&1; then
   echo "tmux not found. Please install tmux first."

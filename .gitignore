@@ -29,3 +29,5 @@ package-lock.json
 
 # Agent instructions (local)
 AGENTS.md
+.vercel
+.env*.local

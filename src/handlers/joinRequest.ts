@@ -9,10 +9,11 @@ import {
   recordVerifiedUser,
   setGroupConfig
 } from "../config/store";
-import type { MyContext, PendingCaptcha, PendingIndexEntry } from "../types";
+import type { MyContext, PendingCaptcha } from "../types";
 import { makePendingKey } from "../types";
 import type { FederationStores } from "../federation/store";
 import { getFederationForChat } from "../federation/store";
+import type { PendingIndexStore } from "../storage/types";
 import {
   buildBanCallbackData,
   buildCaptchaCallbackData,
@@ -24,7 +25,7 @@ export function registerJoinRequestHandler(
   bot: Bot<MyContext>,
   deps: {
     env: Env;
-    pendingIndex: Map<string, PendingIndexEntry>;
+    pendingIndex: PendingIndexStore;
     configStorage: ConfigStorage;
     federationStores: FederationStores;
   }
@@ -116,14 +117,18 @@ export function registerJoinRequestHandler(
     };
 
     ctx.session.pendingCaptchas[key] = record;
-    deps.pendingIndex.set(key, {
-      key,
-      chatId,
-      userId,
-      userChatId,
-      expiresAt: record.expiresAt,
-      sessionKey: userId.toString()
-    });
+    try {
+      await deps.pendingIndex.upsert({
+        key,
+        chatId,
+        userId,
+        userChatId,
+        expiresAt: record.expiresAt,
+        sessionKey: userId.toString()
+      });
+    } catch (error) {
+      console.error("Failed to persist pending index", error);
+    }
 
     const keyboard = buildChoiceKeyboard(
       captcha.options,
@@ -167,7 +172,11 @@ export function registerJoinRequestHandler(
       } catch (declineError) {
         console.error("Failed to decline join request", declineError);
       }
-      deps.pendingIndex.delete(key);
+      try {
+        await deps.pendingIndex.delete(key);
+      } catch (deleteError) {
+        console.error("Failed to delete pending index", deleteError);
+      }
       delete ctx.session.pendingCaptchas[key];
     }
   });

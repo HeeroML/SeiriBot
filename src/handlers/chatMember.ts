@@ -1,9 +1,9 @@
-import type { Bot, MemorySessionStorage } from "grammy";
+import type { Bot, StorageAdapter } from "grammy";
 import type { MyContext, SessionData } from "../types";
 
 export function registerChatMemberHandler(
   bot: Bot<MyContext>,
-  sessionStorage: MemorySessionStorage<SessionData>
+  sessionStorage: StorageAdapter<SessionData>
 ): void {
   bot.on("chat_member", async (ctx) => {
     const update = ctx.update.chat_member;

@@ -1,0 +1,42 @@
+:root {
+  --bg: #f5efe4;
+  --bg-deep: #e8dcc9;
+  --ink: #1f1a14;
+  --muted: #6f6557;
+  --accent: #e07a5f;
+  --accent-2: #3d405b;
+  --card: #fff8ee;
+  --stroke: #e5d7c3;
+  --shadow: rgba(31, 26, 20, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: var(--font-space), "Space Grotesk", "Trebuchet MS", sans-serif;
+  color: var(--ink);
+  background:
+    radial-gradient(800px 420px at 15% -10%, #fbe9d0 0%, transparent 60%),
+    radial-gradient(900px 520px at 100% 0%, #f3d7c6 0%, transparent 65%),
+    linear-gradient(180deg, var(--bg) 0%, var(--bg-deep) 100%);
+}
+
+button,
+input,
+textarea {
+  font-family: inherit;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}

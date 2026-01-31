@@ -1,15 +1,17 @@
 {
   "compilerOptions": {
     "target": "ES2020",
-    "module": "CommonJS",
-    "moduleResolution": "Node",
-    "outDir": "dist",
-    "rootDir": "src",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "preserve",
+    "noEmit": true,
+    "incremental": true,
     "strict": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true
   },
-  "include": ["src"],
-  "exclude": ["tests"]
+  "include": ["next-env.d.ts", "app", "src"],
+  "exclude": ["tests", "dist"]
 }

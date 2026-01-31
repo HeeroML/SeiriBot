@@ -37,7 +37,16 @@ Create a `.env` file based on `.env.example` and set your bot token:
 cp .env.example .env
 ```
 
-Optional environment variables:
+Required environment variables:
+- `BOT_TOKEN`
+- `DATABASE_URL`
+
+WebApp + Vercel environment variables:
+- `WEBHOOK_URL` (base URL for webhook, e.g. `https://your-vercel-app.vercel.app`)
+- `WEBAPP_URL` (full WebApp URL, e.g. `https://your-vercel-app.vercel.app/webapp`)
+- `CONFIG_LINK_TTL_MS` (default 600000)
+
+Optional bot environment variables:
 - `CAPTCHA_TTL_MS` (default 600000)
 - `MAX_ATTEMPTS` (default 2)
 - `SWEEP_INTERVAL_MS` (default 60000)
@@ -97,10 +106,15 @@ Use `/test` (private or group) to receive a test captcha. It does not approve or
 npm run dev
 ```
 
-Build & start:
+Build & start (bot):
 ```bash
-npm run build
+npm run build:bot
 npm start
+```
+
+WebApp dev server:
+```bash
+npm run dev:web
 ```
 
 ## How it works
@@ -114,4 +128,15 @@ npm start
 
 ## Notes
 - The chat members plugin is enabled and `chat_member` updates are explicitly allowed for polling.
-- Captcha state is stored in memory via grammY's session middleware. Group config is stored using `@grammyjs/storage-free`.
+- State is stored in Postgres via `@grammyjs/storage-psql` (session, config, meta, pending index).
+- `/config` in a group sends a WebApp button for admins. The WebApp handles full configuration.
+
+## Vercel deployment
+This repo deploys a Next.js WebApp and a Telegram webhook in one project.
+
+1. Set environment variables in Vercel:
+   - `BOT_TOKEN`, `DATABASE_URL`, `WEBHOOK_URL`, `WEBAPP_URL`, `CONFIG_LINK_TTL_MS`
+2. Telegram webhook URL (set automatically in production):
+   - `https://your-vercel-app.vercel.app/api/telegram`
+3. Cron:
+   - `/api/sweep` runs every 15 minutes via `vercel.json`.

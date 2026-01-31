@@ -6,19 +6,28 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "dev:web": "next dev",
+    "build": "next build",
+    "build:bot": "tsc -p tsconfig.bot.json",
     "start": "node dist/index.js",
+    "start:web": "next start",
     "test": "tsx tests/captcha.test.ts",
     "bot": "scripts/bot-tmux.sh"
   },
   "dependencies": {
     "@grammyjs/chat-members": "^1.2.0",
-    "@grammyjs/storage-free": "^2.5.1",
+    "@grammyjs/storage-psql": "^2.5.1",
+    "@neondatabase/serverless": "^0.10.0",
     "dotenv": "^16.4.7",
-    "grammy": "^1.39.3"
+    "grammy": "^1.39.3",
+    "next": "^14.2.5",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.7",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3"
   }

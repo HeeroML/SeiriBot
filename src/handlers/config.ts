@@ -1,6 +1,8 @@
 import { InlineKeyboard, type Bot, type Context } from "grammy";
 import type { MyContext } from "../types";
 import type { ConfigStorage } from "../config/store";
+import type { KeyValueStorage } from "../storage/namespaced";
+import type { ConfigLinkStore } from "../storage/types";
 import {
   addAllowlistUser,
   addDenylistUser,
@@ -10,37 +12,27 @@ import {
   renderTemplate,
   setGroupConfig
 } from "../config/store";
+import { loadManagedGroups, recordManagedGroup, type ManagedGroup } from "../config/managedGroups";
+import { generateNonce } from "../captcha/pattern";
 
 const ADMIN_STATUSES = new Set(["administrator", "creator"]);
 const CONFIG_CHAT_TYPES = new Set(["group", "supergroup", "channel"]);
-const MANAGED_GROUPS_KEY_PREFIX = "cfg-groups:";
-const MANAGED_GROUPS_LIMIT = 50;
 
-type KeyValueStorage = {
-  read(key: string): Promise<unknown>;
-  write(key: string, data: unknown): Promise<void>;
+type WebAppConfig = {
+  url: string;
+  linkStore: ConfigLinkStore;
+  linkTtlMs: number;
 };
-
-type ManagedGroup = {
-  chatId: number;
-  title?: string;
-  updatedAt: number;
-};
-
-type ManagedGroupsState = {
-  groups: ManagedGroup[];
-};
-
-function isManagedGroupsState(value: unknown): value is ManagedGroupsState {
-  if (!value || typeof value !== "object") return false;
-  return Array.isArray((value as ManagedGroupsState).groups);
-}
 
 export function registerConfigHandlers(
   bot: Bot<MyContext>,
-  configStorage: ConfigStorage,
-  metaStorage: KeyValueStorage
+  deps: {
+    configStorage: ConfigStorage;
+    metaStorage: KeyValueStorage;
+    webApp?: WebAppConfig;
+  }
 ): void {
+  const { configStorage, metaStorage, webApp } = deps;
   bot.command("config", async (ctx) => {
     if (ctx.chat?.type === "private") {
       await showManagedGroupsMenu(ctx, metaStorage, true);
@@ -48,6 +40,30 @@ export function registerConfigHandlers(
     }
 
     if (ctx.chat && CONFIG_CHAT_TYPES.has(ctx.chat.type)) {
+      if (!ctx.from) return;
+      const adminInfo = await ensureAdminForChat(ctx, ctx.chat.id);
+      if (!adminInfo) return;
+      await recordManagedGroup(metaStorage, ctx.from.id, ctx.chat.id, adminInfo.chatTitle);
+
+      if (webApp?.url) {
+        try {
+          const expiresAt = Date.now() + webApp.linkTtlMs;
+          const nonce = generateNonce(8);
+          await webApp.linkStore.create({
+            nonce,
+            chatId: ctx.chat.id,
+            userId: ctx.from.id,
+            expiresAt
+          });
+          const webAppUrl = buildWebAppUrl(webApp.url, ctx.chat.id, nonce);
+          const keyboard = new InlineKeyboard().webApp("WebApp oeffnen", webAppUrl);
+          await ctx.reply("Oeffne die Konfiguration im WebApp.", { reply_markup: keyboard });
+          return;
+        } catch (error) {
+          console.error("Failed to create WebApp link", error);
+        }
+      }
+
       await showConfigMenu(ctx, configStorage, metaStorage, ctx.chat.id, false);
       return;
     }
@@ -595,33 +611,11 @@ function formatGroupLabel(group: ManagedGroup): string {
   return `${trimmed.slice(0, 45)}...`;
 }
 
-function managedGroupsKey(userId: number): string {
-  return `${MANAGED_GROUPS_KEY_PREFIX}${userId}`;
-}
-
-async function loadManagedGroups(
-  storage: KeyValueStorage,
-  userId: number
-): Promise<ManagedGroup[]> {
-  const data = await storage.read(managedGroupsKey(userId));
-  if (!isManagedGroupsState(data)) return [];
-  return data.groups
-    .filter((group): group is ManagedGroup => Boolean(group) && Number.isFinite(group.chatId))
-    .sort((left, right) => right.updatedAt - left.updatedAt);
-}
-
-async function recordManagedGroup(
-  storage: KeyValueStorage,
-  userId: number,
-  chatId: number,
-  title?: string
-): Promise<void> {
-  const groups = await loadManagedGroups(storage, userId);
-  const now = Date.now();
-  const updated: ManagedGroup = { chatId, title, updatedAt: now };
-  const next = [updated, ...groups.filter((group) => group.chatId !== chatId)];
-  if (next.length > MANAGED_GROUPS_LIMIT) next.length = MANAGED_GROUPS_LIMIT;
-  await storage.write(managedGroupsKey(userId), { groups: next });
+function buildWebAppUrl(baseUrl: string, chatId: number, nonce: string): string {
+  const url = new URL(baseUrl);
+  url.searchParams.set("chatId", String(chatId));
+  url.searchParams.set("nonce", nonce);
+  return url.toString();
 }
 
 function extractCommandPayload(ctx: Context): string {
