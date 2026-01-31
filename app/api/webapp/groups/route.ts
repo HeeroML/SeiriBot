@@ -1,6 +1,7 @@
 import { requireWebAppUser, getManagedGroupsForUser } from "../../../../src/webapp/server";
 
 export const runtime = "nodejs";
+export const preferredRegion = "fra1";
 
 export async function POST(req: Request): Promise<Response> {
   const body = await req.json().catch(() => ({}));

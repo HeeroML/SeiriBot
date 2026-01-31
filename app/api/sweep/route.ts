@@ -2,6 +2,7 @@ import { getBot, getStorage } from "../../../src/server/runtime";
 import { sweepExpiredCaptchas } from "../../../src/sweep";
 
 export const runtime = "nodejs";
+export const preferredRegion = "fra1";
 
 export async function GET(): Promise<Response> {
   const storage = await getStorage();

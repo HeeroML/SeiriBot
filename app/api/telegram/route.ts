@@ -4,6 +4,7 @@ import { getBot } from "../../../src/server/runtime";
 import { env } from "../../../src/env";
 
 export const runtime = "nodejs";
+export const preferredRegion = "fra1";
 
 let handlerPromise: Promise<(req: Request) => Promise<Response>> | null = null;
 let webhookEnsured = false;

@@ -2,6 +2,7 @@ import { requireWebAppAdmin } from "../../../../../src/webapp/server";
 import { setGroupConfig } from "../../../../../src/config/store";
 
 export const runtime = "nodejs";
+export const preferredRegion = "fra1";
 
 type ConfigPatch = {
   welcomeMessage?: string;
